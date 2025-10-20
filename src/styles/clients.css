@@ -1,0 +1,1831 @@
+/* clients.css — mobile-first, professional, clean, world‑class responsive
+   Notes:
+   - Mobile-first defaults tuned for phones (320–480px)
+   - Tablet/large-phone refinements via progressive @media blocks
+   - No class names changed; only enhancements + careful overrides
+   - No dark mode; consistent light UI
+   - Uses safe‑area insets for notched devices
+   - Respects prefers-reduced-motion
+*/
+
+:root {
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e6e8eb;
+    --text: #0f172a;
+    --muted: #667085;
+    --accent: #111827;
+    --accent-weak: #f3f4f6;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .10);
+    --radius: 12px;
+    /* Mobile-first typography/tap targets */
+    --f-xs: 12px;
+    --f-sm: 13px;
+    --f-md: 14px;
+    --f-lg: 16px;
+    --tap: 44px;
+    /* min touch target */
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    color: var(--text);
+    background: var(--bg);
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+/* Safe-area padding for notched devices */
+body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+}
+
+.wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 16px;
+    /* tighter on mobile */
+}
+
+.bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    /* tighter gap on mobile */
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    /* allow wrap on small screens */
+}
+
+.title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+.toolbar {
+    width: 100%;
+    /* full-width tools on mobile */
+    margin: 8px 0 12px;
+}
+
+
+.input {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: var(--f-md);
+    line-height: 1.2;
+    outline: none;
+    min-height: 40px;
+    /* touch size */
+}
+
+.input:focus {
+    border-color: #c9ced6;
+}
+
+.area {
+    resize: vertical;
+    min-height: 96px;
+}
+
+.btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    /* touch-friendly */
+    border-radius: 10px;
+    font-size: var(--f-md);
+    line-height: 1.1;
+    min-height: var(--tap);
+    transition: background .15s ease, border-color .15s ease, transform .02s ease, filter .15s ease;
+    touch-action: manipulation;
+    cursor: pointer;
+}
+
+.modal-btn {
+    width: 49%;
+}
+
+.inventory-toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8;
+}
+
+.margin-bottom {
+    margin-bottom: 12px;
+}
+
+.width-100 {
+    width: 100% !important;
+}
+
+.modal-footer {
+    width: 50%;
+}
+
+.btn:hover {
+    background: var(--accent-weak);
+    cursor: pointer;
+}
+
+.btn:active {
+    transform: translateY(0.5px);
+}
+
+.btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.btn.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+.btn.primary:hover {
+    filter: brightness(0.96);
+    cursor: pointer;
+}
+
+.btn.ghost {
+    background: transparent;
+    cursor: pointer !important;
+}
+
+.btn.icon {
+    font-size: 20px;
+    /* smaller icon on mobile */
+    padding: 0 6px;
+    line-height: 1;
+    border: none;
+    background: transparent;
+    min-height: auto;
+}
+
+.btn.danger {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+}
+
+.btn.danger:hover {
+    filter: brightness(0.95);
+    cursor: pointer !important;
+}
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--f-md);
+    table-layout: auto;
+    /* allow shrink on mobile */
+}
+
+.tbl thead th {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    background: #fbfbfc;
+    font-weight: 600;
+    white-space: nowrap;
+    /* keeps header visible on horizontal scroll */
+    top: 0;
+    z-index: 1;
+}
+
+.tbl tbody td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.tbl tbody td.wrap-text {
+    white-space: normal;
+}
+
+.truncate {
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.center {
+    text-align: center;
+}
+
+.right {
+    text-align: right;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    /* wrap action buttons on mobile */
+}
+
+/* NEW, improved status chip */
+.status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.status .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status--active {
+    color: #065F46;
+    background: #ECFDF5;
+    border-color: #A7F3D0;
+}
+
+.status--active .dot {
+    background: #10B981;
+}
+
+.status--inactive {
+    color: #92400E;
+    background: #FFFBEB;
+    border-color: #FDE68A;
+}
+
+.status--inactive .dot {
+    background: #F59E0B;
+}
+
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pager-controls {
+    display: flex;
+    gap: 8px;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    z-index: 50;
+}
+
+.modal-card {
+    width: 100%;
+    max-width: 720px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 14px;
+    padding-bottom: 0;
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+}
+
+.modal-title {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.form {
+    display: grid;
+    gap: 10px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    /* single column on mobile */
+    gap: 10px;
+}
+
+.lbl {
+    display: grid;
+    gap: 6px;
+}
+
+.lbl-text {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.span-2 {
+    grid-column: span 1;
+    /* no span on mobile */
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+/* Larger card option for detail modals */
+.modal-card--lg {
+    max-width: 900px;
+}
+
+/* Details grid inside modal */
+.details-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    /* stack on mobile */
+    gap: 12px;
+    padding-top: 4px;
+}
+
+.details-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.detail-row {
+    display: grid;
+    grid-template-columns: 1fr !important;
+    /* label above value on mobile */
+    gap: 6px;
+    align-items: start;
+}
+
+.detail-label {
+    font-size: 12px;
+    color: var(--muted);
+    padding-top: 0;
+}
+
+.detail-value {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* space between buttons in modal footer */
+.modal-actions.between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Mini confirm popup */
+.confirm {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.25);
+}
+
+.confirm-card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 14px;
+}
+
+.confirm-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.confirm-text {
+    font-size: 14px;
+    color: var(--muted);
+    margin: 0 0 12px;
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* Searchable vendor dropdown */
+.vendor-select {
+    position: relative;
+}
+
+.vendor-input-wrap {
+    position: relative;
+}
+
+.vendor-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 0 6px;
+    border: none;
+    background: transparent;
+}
+
+.vendor-panel {
+    position: absolute;
+    z-index: 60;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    max-height: 280px;
+    overflow: auto;
+}
+
+.vendor-item {
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    background: #fff;
+    border: none;
+    border-bottom: 1px solid #f3f4f6;
+    cursor: pointer;
+}
+
+.vendor-item:last-child {
+    border-bottom: 0;
+}
+
+.vendor-item:hover {
+    background: #f8fafc;
+}
+
+.vendor-item.is-active {
+    background: #eef2ff;
+}
+
+/* 80% width purchase modal */
+.modal-card--xl {
+    width: 90vw;
+    /* more forgiving on phones */
+    max-width: 1200px;
+    min-width: 90vw;
+    overflow: visible;
+}
+
+/* Hoverable rows in search dropdowns */
+.hoverable:hover {
+    background: #f6f7f9;
+}
+
+/* Portaled dropdown (always above modal) */
+.search-dropdown-portal {
+    max-height: 260px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e6e8eb;
+    border-radius: 10px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    z-index: 100000;
+    /* above any modal */
+    padding: 6px;
+}
+
+.search-option {
+    padding: 10px 12px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.12s ease;
+}
+
+.search-option:hover {
+    background: #f3f4f6;
+}
+
+/* Two controls in one row (Vendor + Client) */
+.row-2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    /* stack on mobile */
+    gap: 10px;
+}
+
+/* Smaller height input (for Brief Description) */
+.input--sm {
+    height: 40px;
+}
+
+/* Keep value pills single-line with ellipsis */
+.detail-value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 40px;
+    /* match input height */
+}
+
+/* Ensure the two-column row (Vendor + Client) has enough space */
+.row-2 .detail-row .detail-label {
+    padding-top: 0;
+}
+
+/* If your vendor/client names can be long, allow the value to grow a bit */
+.row-2 .detail-row .detail-value {
+    max-width: 100%;
+}
+
+/* === Checkbox Styling === */
+.check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: var(--f-md);
+    color: var(--text);
+    user-select: none;
+}
+
+/* Base checkbox */
+.check input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.15s ease;
+}
+
+/* Hover effect */
+.check input[type="checkbox"]:hover {
+    border-color: var(--accent);
+}
+
+/* Checked state */
+.check input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Checkmark (✓) icon */
+.check input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: -1.5px;
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* Disabled state */
+.check input[type="checkbox"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Label text alignment */
+.check span {
+    line-height: 1;
+}
+
+/* ============================= */
+/* Accessibility & Motion Control */
+/* ============================= */
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* ============================= */
+/* Responsive Tables: Stack Mode */
+/* ============================= */
+/* On very small screens, allow a card-like row display for .tbl */
+@media (max-width: 380px) {
+    .tbl thead {
+        display: none;
+    }
+
+    .tbl,
+    .tbl tbody,
+    .tbl tr,
+    .tbl td {
+        display: block;
+        width: 100%;
+    }
+
+    .tbl tr {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .tbl tbody td {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 8px;
+        padding: 10px 8px;
+    }
+
+    .tbl tbody td::before {
+        content: attr(data-th);
+        color: var(--muted);
+        font-weight: 600;
+        font-size: var(--f-sm);
+    }
+
+    .actions {
+        justify-content: flex-start;
+    }
+}
+
+/* ============================= */
+/* Progressive Breakpoints        */
+/* ============================= */
+/* 320px — small phones */
+@media (min-width: 320px) {
+    .wrap {
+        padding: 18px;
+    }
+
+    .title {
+        font-size: 19px;
+    }
+}
+
+/* 360px */
+@media (min-width: 360px) {
+    .truncate {
+        max-width: 240px;
+    }
+
+    .tbl thead th,
+    .tbl tbody td {
+        padding: 12px;
+    }
+}
+
+/* 375px */
+@media (min-width: 375px) {
+    .title {
+        font-size: 20px;
+    }
+}
+
+/* 390px */
+@media (min-width: 390px) {
+    .btn.icon {
+        font-size: 22px;
+    }
+}
+
+/* 412px */
+@media (min-width: 412px) {
+    .wrap {
+        padding: 20px;
+    }
+}
+
+/* 428px */
+@media (min-width: 428px) {
+    .toolbar {
+        display: flex;
+        gap: 8px;
+    }
+}
+
+/* 480px — large phones */
+@media (min-width: 480px) {
+    :root {
+        --f-lg: 17px;
+    }
+
+    .title {
+        font-size: 21px;
+    }
+
+    .row-2 {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .span-2 {
+        grid-column: span 2;
+    }
+}
+
+/* 520px */
+@media (min-width: 520px) {
+    .details-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .detail-row {
+        grid-template-columns: 160px 1fr;
+    }
+
+    .detail-label {
+        padding-top: 10px;
+    }
+}
+
+/* 568px */
+@media (min-width: 568px) {
+    .pager {
+        padding: 12px;
+    }
+}
+
+/* 600px */
+@media (min-width: 600px) {
+    .wrap {
+        padding: 22px;
+    }
+
+    .title {
+        font-size: 22px;
+    }
+}
+
+/* 640px — small tablets / landscape phones */
+@media (min-width: 640px) {
+    .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .row-2 {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .details-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .detail-row {
+        grid-template-columns: 180px 1fr;
+    }
+}
+
+/* 720px */
+@media (min-width: 720px) {
+    .modal-card {
+        padding: 16px;
+    }
+}
+
+/* 768px — tablets portrait */
+@media (min-width: 768px) {
+    :root {
+        --f-md: 15px;
+    }
+
+    .wrap {
+        padding: 24px;
+    }
+
+    .bar {
+        gap: 12px;
+    }
+
+    .title {
+        font-size: 22px;
+    }
+
+    .tbl {
+        font-size: 15px;
+    }
+
+    .modal-title {
+        font-size: 18px;
+    }
+}
+
+/* 820px */
+@media (min-width: 820px) {
+    .toolbar {
+        width: auto;
+        margin: 12px 0 16px;
+    }
+}
+
+/* 834px — iPad Air portrait */
+@media (min-width: 834px) {
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .row-2 {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .span-2 {
+        grid-column: span 2;
+    }
+}
+
+/* 896px */
+@media (min-width: 896px) {
+    .details-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* 900px */
+@media (min-width: 900px) {
+    .modal-card--lg {
+        max-width: 880px;
+    }
+}
+
+/* 960px */
+@media (min-width: 960px) {
+    .wrap {
+        padding: 28px;
+    }
+}
+
+/* 1024px — tablets landscape / small laptop */
+@media (min-width: 1024px) {
+    :root {
+        --f-md: 16px;
+        --f-lg: 18px;
+    }
+
+    .title {
+        font-size: 24px;
+    }
+
+    .tbl thead th,
+    .tbl tbody td {
+        padding: 14px;
+    }
+
+    .modal-card {
+        max-width: 760px;
+    }
+}
+
+/* 1080px */
+@media (min-width: 1080px) {
+    .truncate {
+        max-width: 300px;
+    }
+}
+
+/* 1180px */
+@media (min-width: 1180px) {
+    .wrap {
+        max-width: 1160px;
+    }
+}
+
+/* 1200px */
+@media (min-width: 1200px) {
+    .modal-card--xl {
+        width: 80vw;
+        min-width: 1200px;
+    }
+}
+
+/* 1280px */
+@media (min-width: 1280px) {
+    .wrap {
+        max-width: 1200px;
+    }
+}
+
+/* 1366px — common laptop */
+@media (min-width: 1366px) {
+    .wrap {
+        max-width: 1240px;
+    }
+}
+
+/* 1440px */
+@media (min-width: 1440px) {
+    .wrap {
+        max-width: 1280px;
+    }
+}
+
+/* ============================= */
+/* Orientation-specific tweaks    */
+/* ============================= */
+@media (orientation: landscape) and (max-height: 440px) {
+    .modal {
+        align-items: flex-start;
+        padding-top: 8px;
+    }
+
+    .modal-card {
+        max-height: calc(100dvh - 16px);
+        overflow: auto;
+    }
+}
+
+/* ============================= */
+/* Fine pointer / hover capable  */
+/* ============================= */
+@media (hover: hover) and (pointer: fine) {
+    .btn:hover {
+        filter: brightness(0.99);
+    }
+
+    .card {
+        transition: box-shadow .15s ease, transform .06s ease;
+    }
+
+    .card:hover {
+        box-shadow: 0 2px 10px rgba(0, 0, 0, .06);
+    }
+}
+
+/* ============================= */
+/* High DPI rendering polish      */
+/* ============================= */
+@media (-webkit-min-device-pixel-ratio: 2),
+(min-resolution: 2dppx) {
+    .tbl thead th {
+        border-bottom-color: rgba(0, 0, 0, 0.06);
+    }
+}
+
+/* ============================= */
+/* Form density controls          */
+/* ============================= */
+@media (max-width: 359px) {
+
+    .input,
+    .detail-value {
+        padding: 8px 10px;
+    }
+
+    .btn {
+        padding: 8px 10px;
+    }
+}
+
+/* ============================= */
+/* Modal scrolling improvements   */
+/* ============================= */
+.modal-card,
+.confirm-card {
+    max-height: calc(100dvh - 48px);
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+/* Keep dropdowns within viewport */
+.vendor-panel,
+.search-dropdown-portal {
+    overscroll-behavior: contain;
+}
+
+/* ============================= */
+/* Utility adjustments per class  */
+/* ============================= */
+/* Ensure .bar tool sections wrap nicely on tiny phones */
+@media (max-width: 340px) {
+    .bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+/* Make status chips compact on very small screens */
+@media (max-width: 360px) {
+    .status {
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+}
+
+/* Improve table scroll affordance */
+.table-wrap::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+    background: #e5e7eb;
+    border-radius: 8px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ============================= */
+/* Print styles (invoices etc.)   */
+/* ============================= */
+@media print {
+    body {
+        background: #fff;
+    }
+
+    .wrap {
+        max-width: none;
+        padding: 0;
+    }
+
+    .bar,
+    .toolbar,
+    .modal,
+    .confirm {
+        display: none !important;
+    }
+
+    .card {
+        box-shadow: none;
+        border-color: #ddd;
+    }
+
+    .tbl thead th,
+    .tbl tbody td {
+        padding: 8px;
+    }
+}
+
+/* ============================= */
+/* Extra granular device targets  */
+/* ============================= */
+/* iPhone SE */
+@media only screen and (device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) {
+    .title {
+        font-size: 18px;
+    }
+}
+
+/* iPhone 12/13 mini */
+@media only screen and (device-width: 360px) and (device-height: 780px) and (-webkit-device-pixel-ratio: 3) {
+    .wrap {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+}
+
+/* iPhone 14/15 */
+@media only screen and (min-device-width: 390px) and (max-device-width: 932px) and (-webkit-device-pixel-ratio: 3) {
+    .btn {
+        min-height: 46px;
+    }
+}
+
+/* iPad (various) portrait */
+@media only screen and (min-device-width: 768px) and (max-device-width: 834px) and (orientation: portrait) {
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* iPad landscape */
+@media only screen and (min-device-width: 810px) and (orientation: landscape) {
+    .tbl {
+        font-size: 15px;
+    }
+}
+
+/* ============================= */
+/* Focus outlines for accessibility */
+/* ============================= */
+:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.btn:focus-visible,
+.input:focus-visible,
+.vendor-item:focus-visible,
+.search-option:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+/* ============================= */
+/* Spacing scale refinements       */
+/* ============================= */
+@media (min-width: 640px) {
+    .pager {
+        gap: 12px;
+    }
+
+    .actions {
+        gap: 10px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .pager {
+        padding: 14px;
+    }
+}
+
+/* ============================= */
+/* Edge-case: super narrow width  */
+/* ============================= */
+@media (max-width: 300px) {
+    .wrap {
+        padding: 12px;
+    }
+
+    .btn {
+        padding: 8px;
+        font-size: var(--f-sm);
+    }
+
+    .input {
+        padding: 8px 10px;
+        font-size: var(--f-sm);
+    }
+}
+
+/* ============================= */
+/* Sticky actions for long forms  */
+/* ============================= */
+@supports (position: sticky) {
+    .modal-actions.between {
+        position: sticky;
+        bottom: 0;
+        background: var(--card);
+        padding-top: 8px;
+    }
+}
+
+/* ============================= */
+/* Hit-area expansion on mobile   */
+/* ============================= */
+@media (pointer: coarse) {
+    .btn.icon {
+        padding: 6px 10px;
+    }
+
+    .vendor-clear {
+        padding: 0 8px;
+    }
+}
+
+/* ============================= */
+/* Density presets via viewport   */
+/* ============================= */
+@media (min-width: 360px) and (max-width: 480px) and (min-height: 740px) {
+
+    .input,
+    .detail-value {
+        min-height: 44px;
+    }
+}
+
+/* ============================= */
+/* Form grid enhancements         */
+/* ============================= */
+@media (min-width: 900px) {
+    .grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .span-2 {
+        grid-column: span 3;
+    }
+}
+
+/* Keep last column actions aligned in tables when space permits */
+@media (min-width: 768px) {
+    .actions {
+        justify-content: flex-end;
+    }
+}
+
+/* ============================= */
+/* Card padding scaling           */
+/* ============================= */
+.card {
+    padding: 0;
+}
+
+@media (min-width: 640px) {
+    .card {
+        padding: 0;
+    }
+}
+
+@media (min-width: 1024px) {
+    .card {
+        padding: 0;
+    }
+}
+
+/* ============================= */
+/* Vendor panel mobile viewport   */
+/* ============================= */
+@media (max-height: 600px) {
+    .vendor-panel {
+        max-height: 220px;
+    }
+}
+
+/* ============================= */
+/* Pagination controls sizing     */
+/* ============================= */
+.pager-controls .btn {
+    min-width: 40px;
+    text-align: center;
+}
+
+/* ============================= */
+/* Ensure modal content breathing */
+/* ============================= */
+.modal-card>*:last-child {
+    margin-bottom: 2px;
+}
+
+/* ============================= */
+/* iOS momentum scroll behavior   */
+/* ============================= */
+.modal-card,
+.vendor-panel,
+.search-dropdown-portal,
+.table-wrap {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ============================= */
+/* Z-index safety                 */
+/* ============================= */
+.modal {
+    z-index: 1000;
+}
+
+.search-dropdown-portal {
+    z-index: 1100;
+}
+
+/* ============================= */
+/* Field label wrapping           */
+/* ============================= */
+.lbl-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (min-width: 640px) {
+    .lbl-text {
+        white-space: normal;
+    }
+
+    .toolbar {
+        width: 100%;
+        /* full-width tools on mobile */
+        margin: 8px 0 12px;
+        display: grid;
+        grid-template-columns: 1fr auto 1.2fr 1fr 1fr;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .line-row,
+    .line-head {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
+        gap: 8px;
+        padding: 6px 0;
+    }
+}
+
+/* ============================= */
+/* Table cell alignment fixes     */
+/* ============================= */
+.tbl td.right,
+.tbl th.right {
+    text-align: right;
+}
+
+.tbl td.center,
+.tbl th.center {
+    text-align: center;
+}
+
+/* ============================= */
+/* Compact helpers on micro view  */
+/* ============================= */
+@media (max-width: 340px) {
+    .status {
+        gap: 4px;
+    }
+
+    .status .dot {
+        width: 7px;
+        height: 7px;
+    }
+}
+
+/* ============================= */
+/* Vendor/client row tightening   */
+/* ============================= */
+@media (max-width: 480px) {
+    .row-2 .detail-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* End of stylesheet */
+
+
+/* ----------- Mobile toolbar stacking ----------- */
+@media (max-width: 600px) {
+    .toolbar {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .toolbar select,
+    .toolbar input,
+    .toolbar button {
+        width: 100%;
+    }
+
+    .modal-btn {
+        width: 100%;
+    }
+
+    .modal-footer {
+        width: 100%;
+    }
+
+    .line-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 30px;
+    }
+
+    .line-head {
+        display: none;
+    }
+}
+
+/* ----------- Responsive purchase/sales table layout ----------- */
+@media (max-width: 600px) {
+    .tbl {
+        font-size: 13px;
+    }
+
+    .tbl thead {
+        display: none;
+        /* hide headers on tiny screens */
+    }
+
+    .tbl,
+    .tbl tbody,
+    .tbl tr,
+    .tbl td {
+        display: block;
+        width: 100%;
+    }
+
+    .tbl tr {
+        background: #fff;
+        margin-bottom: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+    }
+
+    .tbl tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .tbl tbody td:last-child {
+        border-bottom: none;
+    }
+
+    .tbl tbody td::before {
+        content: attr(data-th);
+        font-weight: 600;
+        color: var(--muted);
+        flex-shrink: 0;
+        margin-right: 10px;
+    }
+
+    .actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 480px) {
+    .btn {
+        font-size: 13px;
+        padding: 8px 10px;
+        min-height: 38px;
+    }
+}
+
+
+
+
+
+
+
+
+/* ============================= */
+/* Ledger toolbar (unique class) */
+/* ============================= */
+
+.ledger-toolbar {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+/* sections */
+.ledger-toolbar__left,
+.ledger-toolbar__range,
+.ledger-toolbar__actions {
+    display: grid;
+    gap: 8px;
+}
+
+/* label sits inline with controls on wide screens, stacks on mobile */
+.ledger-toolbar__label {
+    align-self: center;
+}
+
+/* Make inputs comfortable on mobile */
+.ledger-toolbar .input {
+    width: 100%;
+}
+
+/* Actions right-align on wide screens, full width on mobile */
+.ledger-toolbar__actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* ---------- Breakpoints ---------- */
+
+/* >= 640px: put it into a clean grid (tablet & up) */
+@media (min-width: 640px) {
+    .ledger-toolbar {
+        grid-template-columns: 1.2fr 1.2fr auto;
+        align-items: center;
+    }
+
+    .ledger-toolbar__left {
+        grid-template-columns: auto 160px 1fr;
+        /* Label | Status | Search */
+        align-items: center;
+    }
+
+    .ledger-toolbar__range {
+        grid-template-columns: 1fr;
+        /* default: only the preset */
+        align-items: center;
+    }
+
+    /* when CUSTOM is active, those extra date inputs will naturally wrap;
+     give them a nice multi-column layout on roomy screens */
+    .ledger-toolbar__range:has(input[type="date"]) {
+        grid-template-columns: 1fr 1fr 1fr;
+        /* Preset | Start | End */
+    }
+}
+
+/* >= 900px: a bit more breathing space */
+@media (min-width: 900px) {
+    .ledger-toolbar {
+        column-gap: 12px;
+    }
+
+    .ledger-toolbar__left {
+        grid-template-columns: auto 180px 1fr;
+    }
+}
+
+/* <= 600px: stack everything neatly, full-width controls */
+@media (max-width: 600px) {
+
+    .ledger-toolbar__left,
+    .ledger-toolbar__range,
+    .ledger-toolbar__actions {
+        grid-template-columns: 1fr;
+    }
+
+    .ledger-toolbar__actions .btn {
+        width: 100%;
+    }
+
+    .ledger-toolbar__label {
+        margin-bottom: -2px;
+        /* tighter stack */
+    }
+}
+
+
+
+/* ============================= */
+/* Totals & Actions Bar (unique) */
+/* ============================= */
+
+.totals-actions-bar {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    justify-content: space-between;
+    margin-top: 12px;
+}
+
+/* All buttons same width on desktop */
+.totals-actions-bar .btn {
+    flex: 1;
+    text-align: center;
+    font-weight: 500;
+}
+
+/* Mobile: stack buttons vertically */
+@media (max-width: 640px) {
+    .totals-actions-bar {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .totals-actions-bar .btn {
+        width: 100%;
+    }
+}
+
+/* Ledger txn amount coloring (unique classes) */
+.txn-amt--in {
+    /* Receipt */
+    color: #059669;
+    /* emerald-600 */
+    font-weight: 600;
+}
+
+.txn-amt--out {
+    /* Payment */
+    color: #dc2626;
+    /* red-600 */
+    font-weight: 600;
+}
+
+/* make sure color persists on small stacked rows */
+@media (max-width: 600px) {
+
+    .txn-amt--in,
+    .txn-amt--out {
+        color: inherit;
+        /* remove this line if you want colors on mobile too */
+    }
+}
+
+/* ============================= */
+/* Parties page UNIQUE toolbar   */
+/* ============================= */
+
+.parties-toolbar {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    margin: 8px 0 12px;
+}
+
+.parties-toolbar__group {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+}
+
+
+/* >= 640px (small tablets / landscape phones): 3 columns */
+@media (min-width: 640px) {
+    .parties-toolbar {
+        grid-template-columns: 1.2fr 0.8fr 0.8fr;
+        align-items: end;
+        /* bottoms align neatly */
+        column-gap: 10px;
+    }
+
+    .parties-toolbar__group {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* >= 900px: more breathing room */
+@media (min-width: 900px) {
+    .parties-toolbar {
+        column-gap: 12px;
+    }
+}
+
+/* <= 600px: stack controls full-width */
+@media (max-width: 600px) {
+
+    .parties-toolbar__group .input,
+    .parties-toolbar__group select {
+        width: 100%;
+    }
+}
+
+
+/* --- Purchases view-only footer actions: mobile = vertical, desktop = one row --- */
+.purchase-view-actions {
+    display: flex;
+    flex-direction: column;
+    /* mobile: vertical */
+    gap: 8px;
+    margin-top: 12px;
+}
+
+/* Make buttons full-width on mobile for easy taps */
+.purchase-view-actions .btn {
+    width: 100%;
+}
+
+/* Desktop/tablet: force a single horizontal row aligned right */
+@media (min-width: 768px) {
+    .purchase-view-actions {
+        flex-direction: row;
+        /* desktop: horizontal */
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: nowrap;
+        /* keep all in one line */
+        gap: 8px;
+    }
+
+    /* Override the global .modal-btn width inside this area on desktop */
+    .purchase-view-actions .btn {
+        width: 100%;
+        /* natural size */
+        min-width: 120px;
+        /* optional: keeps a neat, even look */
+    }
+}
+
+
+/* ===== Uniform line controls without touching existing classes ===== */
+.line-wrap {
+    margin-bottom: 10px;
+}
+
+.line-row--uniform {
+    align-items: start;
+}
+
+/* make all inputs/selects in the row exactly the same height */
+.line-row--uniform .uniform-input,
+.line-row--uniform select,
+.line-row--uniform .input {
+    height: 44px;
+    /* matches your mobile tap target */
+    min-height: 44px;
+}
+
+/* ensure the SearchSelect's inner input matches the height */
+.uniform-field .input {
+    height: 44px;
+    min-height: 44px;
+}
+
+/* helper text under the row, not inside the grid cell */
+.line-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 4px 0 12px;
+}
+
+/* keep the same column widths as your existing .line-row on wide screens */
+@media (min-width: 640px) {
+    .line-row--uniform {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
+        gap: 8px;
+        padding: 6px 0;
+    }
+}
+
+/* on small screens, stack neatly (inherits your mobile flex rules) */
+@media (max-width: 600px) {
+    .line-row--uniform {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 4px;
+        /* small spacer before the hint */
+    }
+}
+
+@media (min-width: 600px) {
+    .summary-grid {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+}
+@media (max-width: 600px) {
+    .summary-grid {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+}
