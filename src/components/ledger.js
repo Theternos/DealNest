@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { createPortal } from "react-dom";
 import "../styles/clients.css";
+import NavFrame from "./nav";
+import { getSession } from "./login";
 
 /** ---------- IST (Asia/Kolkata) helpers ---------- **/
 const IST_TZ = "Asia/Kolkata";
@@ -132,7 +134,16 @@ function paginate(list, page, pageSize) {
 
 /** ---------- UI ---------- **/
 export default function Ledger() {
-    const [tab, setTab] = useState("SALES"); // SALES | PURCHASES
+    const isSalesUser = getSession()?.role === 'sales';
+    const [tab, setTab] = useState(isSalesUser ? "SALES" : "SALES"); // SALES | PURCHASES
+    
+    // Ensure sales users can't access purchases tab
+    useEffect(() => {
+        if (isSalesUser && tab === 'PURCHASES') {
+            setTab('SALES');
+        }
+    }, [isSalesUser, tab]);
+    
     const [status, setStatus] = useState("ALL");
     const [preset, setPreset] = useState("ALL_TIME");
     const [{ start, end }, setRange] = useState(presetToRange("ALL_TIME"));
@@ -439,359 +450,375 @@ export default function Ledger() {
         : "";
 
     return (
-        <div className="wrap">
-            <header className="bar">
-                <h1 className="title">Ledger</h1>
-                <div className="muted">Receivable Pending: <b>{inrFmt(totalReceivable)}</b> • Payable Pending: <b>{inrFmt(totalPayable)}</b></div>
-            </header>
+        <NavFrame>
+            <div className="wrap">
+                <header className="bar">
+                    <h1 className="title">Ledger</h1>
+                    <div className="muted">Receivable Pending: <b>{inrFmt(totalReceivable)}</b> • Payable Pending: <b>{inrFmt(totalPayable)}</b></div>
+                </header>
 
-            {/* Tabs */}
-            <div className="tabs" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                <button className={`btn ${tab === "SALES" ? "primary" : ""} modal-btn`} onClick={() => setTab("SALES")}>Sales</button>
-                <button className={`btn ${tab === "PURCHASES" ? "primary" : ""} modal-btn`} onClick={() => setTab("PURCHASES")}>Purchases</button>
-            </div>
-
-            {/* Toolbar (new responsive, no inline styles) */}
-            <div className="ledger-toolbar margin-bottom">
-                {/* Left: Status + search */}
-                <div className="ledger-toolbar__left">
-                    <div className="muted ledger-toolbar__label">Status</div>
-                    <select
-                        className="input"
-                        value={status}
-                        onChange={(e) => setStatus(e.target.value)}
-                    >
-                        {STATUS_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                    </select>
-
-                    <input
-                        className="input"
-                        placeholder="Search customer / vendor…"
-                        value={partySearch}
-                        onChange={(e) => setPartySearch(e.target.value)}
-                    />
-                </div>
-
-                {/* Middle: Date presets + custom range */}
-                <div className="ledger-toolbar__range">
-                    <select
-                        className="input"
-                        value={preset}
-                        onChange={(e) => setPreset(e.target.value)}
-                    >
-                        {PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-
-                    {preset === "CUSTOM" && (
-                        <>
-                            <input
-                                className="input"
-                                type="date"
-                                value={customStart}
-                                onChange={(e) => setCustomStart(e.target.value)}
-                            />
-                            <input
-                                className="input"
-                                type="date"
-                                value={customEnd}
-                                onChange={(e) => setCustomEnd(e.target.value)}
-                            />
-                        </>
+                {/* Tabs */}
+                <div className="tabs" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <button className={`btn ${tab === "SALES" ? "primary" : ""} modal-btn`} onClick={() => setTab("SALES")}>Sales</button>
+                    {!isSalesUser && (
+                        <button 
+                            className={`btn ${tab === "PURCHASES" ? "primary" : ""} modal-btn`} 
+                            onClick={() => setTab("PURCHASES")}
+                        >
+                            Purchases
+                        </button>
                     )}
                 </div>
 
-                {/* Right: Refresh */}
-                <div className="ledger-toolbar__actions">
-                    <button className="btn" onClick={fetchAll}>Refresh</button>
-                </div>
-            </div>
+                {/* Toolbar (new responsive, no inline styles) */}
+                <div className="ledger-toolbar margin-bottom">
+                    {/* Left: Status + search */}
+                    <div className="ledger-toolbar__left">
+                        <div className="muted ledger-toolbar__label">Status</div>
+                        <select
+                            className="input"
+                            value={status}
+                            onChange={(e) => setStatus(e.target.value)}
+                        >
+                            {STATUS_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        </select>
 
-
-            {/* Tables */}
-            <div className="card">
-                <div className="table-wrap">
-                    {tab === "SALES" ? (
-                        <table className="tbl">
-                            <thead>
-                                <tr>
-                                    <th>Sale ID</th>
-                                    <th>Client</th>
-                                    <th>Date</th>
-                                    <th className="right">Total</th>
-                                    <th className="right">Paid</th>
-                                    <th className="right">Balance</th>
-                                    <th className="right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-                                {!loading && salesPaged.total === 0 && <tr><td colSpan="7" className="muted center">No records</td></tr>}
-                                {!loading && salesPaged.slice.map(r => (
-                                    <tr key={r.id}>
-                                        <td data-th="Sale ID">{r.code}</td>
-                                        <td data-th="Client">{r.partyName}</td>
-                                        <td data-th="Date">{new Date(r.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
-                                        <td className="right" data-th="Total">{inrFmt(r.total)}</td>
-                                        <td className="right" data-th="Paid">{inrFmt(r.paid)}</td>
-                                        <td className="right" data-th="Balance" style={{ fontWeight: 600 }}>{inrFmt(r.balance)}</td>
-                                        <td className="right" data-th="Actions">
-                                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                                {r.balance > 0.009 ? (
-                                                    <>
-                                                        <button className="btn" onClick={() => openView("SALE", r)}>View</button>
-                                                        <button className="btn primary" onClick={() => openRecord("SALE", r)}>Record Receipt</button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <button className="btn" onClick={() => openView("SALE", r)}>View</button>
-                                                        <button disabled className="btn primary">Record Receipt</button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <table className="tbl">
-                            <thead>
-                                <tr>
-                                    <th>Purchase ID</th>
-                                    <th>Vendor</th>
-                                    <th>Date</th>
-                                    <th className="right">Total</th>
-                                    <th className="right">Paid</th>
-                                    <th className="right">Balance</th>
-                                    <th className="right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-                                {!loading && purchPaged.total === 0 && <tr><td colSpan="7" className="muted center">No records</td></tr>}
-                                {!loading && purchPaged.slice.map(r => (
-                                    <tr key={r.id}>
-                                        <td data-th="Purchase ID">{r.code}</td>
-                                        <td data-th="Vendor">{r.partyName}</td>
-                                        <td data-th="Date">{new Date(r.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
-                                        <td className="right" data-th="Total">{inrFmt(r.total)}</td>
-                                        <td className="right" data-th="Paid">{inrFmt(r.paid)}</td>
-                                        <td className="right" data-th="Balance" style={{ fontWeight: 600 }}>{inrFmt(r.balance)}</td>
-                                        <td className="right" data-th="Actions">
-                                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                                {r.balance > 0.009 ? (
-                                                    <>
-                                                        <button className="btn" onClick={() => openView("PURCHASE", r)}>View</button>
-                                                        <button className="btn primary" onClick={() => openRecord("PURCHASE", r)}>Record Payment</button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <button className="btn" onClick={() => openView("PURCHASE", r)}>View</button>
-                                                        <button disabled className="btn primary">Record Payment</button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-
-                {/* Table pagination footer */}
-                <div className="pager">
-                    <div className="muted">
-                        {tab === "SALES"
-                            ? <>{salesPaged.total} total • Page {salesPaged.page} of {salesPaged.totalPages}</>
-                            : <>{purchPaged.total} total • Page {purchPaged.page} of {purchPaged.totalPages}</>
-                        }
+                        <input
+                            className="input"
+                            placeholder="Search customer / vendor…"
+                            value={partySearch}
+                            onChange={(e) => setPartySearch(e.target.value)}
+                        />
                     </div>
-                    <div className="pager-controls">
-                        {tab === "SALES" ? (
+
+                    {/* Middle: Date presets + custom range */}
+                    <div className="ledger-toolbar__range">
+                        <select
+                            className="input"
+                            value={preset}
+                            onChange={(e) => setPreset(e.target.value)}
+                        >
+                            {PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                        </select>
+
+                        {preset === "CUSTOM" && (
                             <>
-                                <button className="btn" onClick={() => setSalesPage(p => Math.max(1, p - 1))} disabled={salesPaged.page <= 1}>Prev</button>
-                                <button className="btn" onClick={() => setSalesPage(p => Math.min(salesPaged.totalPages, p + 1))} disabled={salesPaged.page >= salesPaged.totalPages}>Next</button>
-                            </>
-                        ) : (
-                            <>
-                                <button className="btn" onClick={() => setPurchPage(p => Math.max(1, p - 1))} disabled={purchPaged.page <= 1}>Prev</button>
-                                <button className="btn" onClick={() => setPurchPage(p => Math.min(purchPaged.totalPages, p + 1))} disabled={purchPaged.page >= purchPaged.totalPages}>Next</button>
+                                <input
+                                    className="input"
+                                    type="date"
+                                    value={customStart}
+                                    onChange={(e) => setCustomStart(e.target.value)}
+                                />
+                                <input
+                                    className="input"
+                                    type="date"
+                                    value={customEnd}
+                                    onChange={(e) => setCustomEnd(e.target.value)}
+                                />
                             </>
                         )}
                     </div>
-                </div>
-            </div>
 
-            {/* Transaction History (global) */}
-            <div className="card margin-bottom" style={{ marginTop: 12 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8, marginTop: 12, paddingLeft: 12 }}>Transaction History</div>
-                <div className="table-wrap">
-                    <table className="tbl">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Bill</th>
-                                <th>Date</th>
-                                <th className="right">Amount</th>
-                                <th>Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {paysPaged.total === 0 && <tr><td colSpan="5" className="muted center">No transactions</td></tr>}
-                            {paysPaged.slice.map(t => {
-                                const saleRow = sales.find(s => s.id === t.sale_id);
-                                const purchRow = purchases.find(p => p.id === t.purchase_id);
-                                const billCode = t.kind === "SALE" ? (saleRow?.code || "—") : (purchRow?.code || "—");
-                                const party = t.kind === "SALE" ? (saleRow?.partyName || "") : (purchRow?.partyName || "");
-                                return (
-                                    <tr key={t.id}>
-                                        <td data-th="Type">{t.kind === "SALE" ? "Receipt" : "Payment"}</td>
-                                        <td data-th="Bill">{billCode} {party ? `• ${party}` : ""}</td>
-                                        <td data-th="Date">{new Date(t.paid_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
-                                        <td
-                                            className={`right txn-amt ${t.kind === "SALE" ? "txn-amt--in" : "txn-amt--out"}`}
-                                            data-th="Amount"
-                                        >
-                                            {inrFmt(t.amount)}
-                                        </td>
-                                        <td data-th="Notes">{t.notes || "-"}</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* Transactions pagination */}
-                <div className="pager">
-                    <div className="muted">
-                        {paysPaged.total} total • Page {paysPaged.page} of {paysPaged.totalPages}
-                    </div>
-                    <div className="pager-controls">
-                        <button className="btn" onClick={() => setPayPage(p => Math.max(1, p - 1))} disabled={paysPaged.page <= 1}>Prev</button>
-                        <button className="btn" onClick={() => setPayPage(p => Math.min(paysPaged.totalPages, p + 1))} disabled={paysPaged.page >= paysPaged.totalPages}>Next</button>
+                    {/* Right: Refresh */}
+                    <div className="ledger-toolbar__actions">
+                        <button className="btn" onClick={fetchAll}>Refresh</button>
                     </div>
                 </div>
-            </div>
 
-            {/* Record Payment / Receipt Modal */}
-            {recordOpen && target && (
-                <div className="modal">
-                    <div className="modal-card">
-                        <div className="modal-head">
-                            <h2 className="modal-title">
-                                {target.kind === "SALE" ? "Record Receipt" : "Record Payment"}
-                            </h2>
-                            <button className="btn icon" onClick={() => setRecordOpen(false)} aria-label="Close">×</button>
-                        </div>
 
-                        <form onSubmit={savePayment}>
-                            <div className="details-grid">
-                                <div className="details-col">
-                                    <div className="detail-row">
-                                        <div className="detail-label">Bill</div>
-                                        <div className="detail-value">{target.code}</div>
-                                    </div>
-                                    <div className="detail-row">
-                                        <div className="detail-label">{target.kind === "SALE" ? "Client" : "Vendor"}</div>
-                                        <div className="detail-value">{target.partyName}</div>
-                                    </div>
-                                </div>
-                                <div className="details-col">
-                                    <div className="detail-row">
-                                        <div className="detail-label">Pending</div>
-                                        <div className="detail-value">{inrFmt(target.balance || 0)}</div>
-                                    </div>
-                                    <label className="detail-row">
-                                        <span className="detail-label">Paid At *</span>
-                                        <input className="detail-value" type="datetime-local" required value={pay.paid_at} onChange={(e) => setPay(p => ({ ...p, paid_at: e.target.value }))} />
-                                    </label>
-                                </div>
-                            </div>
-
-                            <label className="lbl">
-                                <span className="lbl-text">Amount *</span>
-                                <input className="input" type="number" step="0.01" required value={pay.amount} onChange={(e) => setPay(p => ({ ...p, amount: e.target.value }))} />
-                            </label>
-
-                            <label className="lbl">
-                                <span className="lbl-text">Notes</span>
-                                <input className="input" maxLength={200} value={pay.notes} onChange={(e) => setPay(p => ({ ...p, notes: e.target.value }))} />
-                            </label>
-
-                            <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
-                                <div className="muted">Defaulted to pending amount. Adjust if part-payment.</div>
-                            </div>
-                            <div className="modal-actions margin-bottom">
-                                <button type="button" className="btn modal-btn" onClick={() => setRecordOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn modal-btn primary">Save</button>
-                            </div>
-                        </form>
-
-                    </div>
-                </div>
-            )}
-
-            {/* View Bill & Transactions Modal */}
-            {viewOpen && view && (
-                <div className="modal">
-                    <div className="modal-card">
-                        <div className="modal-head">
-                            <h2 className="modal-title">{view.kind === "SALE" ? "Sale" : "Purchase"} — {view.row.code}</h2>
-                            <button className="btn icon" onClick={() => setViewOpen(false)} aria-label="Close">×</button>
-                        </div>
-
-                        <div className="details-grid">
-                            <div className="details-col">
-                                <div className="detail-row"><div className="detail-label">Party</div><div className="detail-value">{view.row.partyName}</div></div>
-                                <div className="detail-row"><div className="detail-label">Date</div><div className="detail-value">{new Date(view.row.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</div></div>
-                                <div className="detail-row"><div className="detail-label">Description</div><div className="detail-value">{view.row.description || "-"}</div></div>
-                                <div className="detail-row"><div className="detail-label">Balance</div><div className="detail-value" style={{ fontWeight: 700 }}>{inrFmt(view.row.balance)}</div></div>
-                            </div>
-                            <div className="details-col">
-                                <div className="detail-row"><div className="detail-label">Subtotal</div><div className="detail-value">{inrFmt(view.row.sub)}</div></div>
-                                <div className="detail-row"><div className="detail-label">Tax</div><div className="detail-value">{inrFmt(view.row.tax)}</div></div>
-                                <div className="detail-row"><div className="detail-label">Total</div><div className="detail-value">{inrFmt(view.row.total)}</div></div>
-                                <div className="detail-row"><div className="detail-label">Paid</div><div className="detail-value">{inrFmt(view.row.paid)}</div></div>
-                            </div>
-                        </div>
-
-                        <div className="table-wrap margin-bottom" style={{ marginTop: 8 }}>
-                            <div style={{ fontWeight: 700, marginBottom: 6 }}>Transactions</div>
-                            <table className="tbl margin-bottom">
+                {/* Tables */}
+                <div className="card">
+                    <div className="table-wrap">
+                        {tab === "SALES" ? (
+                            <table className="tbl">
                                 <thead>
                                     <tr>
+                                        <th>Sale ID</th>
+                                        <th>Client</th>
                                         <th>Date</th>
-                                        <th className="right">Amount</th>
-                                        <th>Notes</th>
+                                        <th className="right">Total</th>
+                                        <th className="right">Paid</th>
+                                        <th className="right">Balance</th>
+                                        <th className="right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {view.txns.length === 0 && <tr><td colSpan="3" className="muted center">No transactions</td></tr>}
-                                    {view.txns.map(t => (
-                                        <tr key={t.id}>
-                                            <td data-th="Date">{new Date(t.paid_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
-                                            <td className="right" data-th="Amount">{inrFmt(t.amount)}</td>
-                                            <td data-th="Notes">{t.notes || "-"}</td>
+                                    {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
+                                    {!loading && salesPaged.total === 0 && <tr><td colSpan="7" className="muted center">No records</td></tr>}
+                                    {!loading && salesPaged.slice.map(r => (
+                                        <tr key={r.id}>
+                                            <td data-th="Sale ID">{r.code}</td>
+                                            <td data-th="Client">{r.partyName}</td>
+                                            <td data-th="Date">{new Date(r.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                            <td className="right" data-th="Total">{inrFmt(r.total)}</td>
+                                            <td className="right" data-th="Paid">{inrFmt(r.paid)}</td>
+                                            <td className="right" data-th="Balance" style={{ fontWeight: 600 }}>{inrFmt(r.balance)}</td>
+                                            <td className="right" data-th="Actions">
+                                                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                                    {r.balance > 0.009 ? (
+                                                        <>
+                                                            <button className="btn" onClick={() => openView("SALE", r)}>View</button>
+                                                            <button className="btn primary" onClick={() => openRecord("SALE", r)}>Record Receipt</button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <button className="btn" onClick={() => openView("SALE", r)}>View</button>
+                                                            <button disabled className="btn primary">Record Receipt</button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
-                        </div>
+                        ) : (
+                            <table className="tbl">
+                                <thead>
+                                    <tr>
+                                        <th>Purchase ID</th>
+                                        <th>Vendor</th>
+                                        <th>Date</th>
+                                        <th className="right">Total</th>
+                                        <th className="right">Paid</th>
+                                        <th className="right">Balance</th>
+                                        <th className="right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
+                                    {!loading && purchPaged.total === 0 && <tr><td colSpan="7" className="muted center">No records</td></tr>}
+                                    {!loading && purchPaged.slice.map(r => (
+                                        <tr key={r.id}>
+                                            <td data-th="Purchase ID">{r.code}</td>
+                                            <td data-th="Vendor">{r.partyName}</td>
+                                            <td data-th="Date">{new Date(r.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                            <td className="right" data-th="Total">{inrFmt(r.total)}</td>
+                                            <td className="right" data-th="Paid">{inrFmt(r.paid)}</td>
+                                            <td className="right" data-th="Balance" style={{ fontWeight: 600 }}>{inrFmt(r.balance)}</td>
+                                            <td className="right" data-th="Actions">
+                                                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                                    {r.balance > 0.009 ? (
+                                                        <>
+                                                            <button className="btn" onClick={() => openView("PURCHASE", r)}>View</button>
+                                                            <button className="btn primary" onClick={() => openRecord("PURCHASE", r)}>Record Payment</button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <button className="btn" onClick={() => openView("PURCHASE", r)}>View</button>
+                                                            <button disabled className="btn primary">Record Payment</button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
 
-                        <div className="modal-actions margin-bottom">
-                            <button className="btn modal-btn" onClick={() => setViewOpen(false)}>Close</button>
-                            {view.row.balance > 0.009 && (
-                                <button className="btn modal-btn primary" onClick={() => { setViewOpen(false); openRecord(view.kind, view.row); }}>
-                                    Record {view.kind === "SALE" ? "Receipt" : "Payment"}
-                                </button>
+                    {/* Table pagination footer */}
+                    <div className="pager">
+                        <div className="muted">
+                            {tab === "SALES"
+                                ? <>{salesPaged.total} total • Page {salesPaged.page} of {salesPaged.totalPages}</>
+                                : <>{purchPaged.total} total • Page {purchPaged.page} of {purchPaged.totalPages}</>
+                            }
+                        </div>
+                        <div className="pager-controls">
+                            {tab === "SALES" ? (
+                                <>
+                                    <button className="btn" onClick={() => setSalesPage(p => Math.max(1, p - 1))} disabled={salesPaged.page <= 1}>Prev</button>
+                                    <button className="btn" onClick={() => setSalesPage(p => Math.min(salesPaged.totalPages, p + 1))} disabled={salesPaged.page >= salesPaged.totalPages}>Next</button>
+                                </>
+                            ) : (
+                                <>
+                                    <button className="btn" onClick={() => setPurchPage(p => Math.max(1, p - 1))} disabled={purchPaged.page <= 1}>Prev</button>
+                                    <button className="btn" onClick={() => setPurchPage(p => Math.min(purchPaged.totalPages, p + 1))} disabled={purchPaged.page >= purchPaged.totalPages}>Next</button>
+                                </>
                             )}
                         </div>
                     </div>
                 </div>
-            )}
-        </div>
+
+                {/* Transaction History (global) */}
+                <div className="card margin-bottom" style={{ marginTop: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, marginTop: 12, paddingLeft: 12 }}>Transaction History</div>
+                    <div className="table-wrap">
+                        <table className="tbl">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Bill</th>
+                                    <th>Date</th>
+                                    <th className="right">Amount</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {paysPaged.total === 0 ? (
+                                    <tr><td colSpan="5" className="muted center">No transactions</td></tr>
+                                ) : paysPaged.slice.filter(t => !isSalesUser || t.kind !== "PURCHASE").length === 0 ? (
+                                    <tr><td colSpan="5" className="muted center">No transactions to display</td></tr>
+                                ) : (
+                                    paysPaged.slice
+                                        .filter(t => !isSalesUser || t.kind !== "PURCHASE")
+                                        .map(t => {
+                                            const saleRow = sales.find(s => s.id === t.sale_id);
+                                            const purchRow = purchases.find(p => p.id === t.purchase_id);
+                                            const billCode = t.kind === "SALE" ? (saleRow?.code || "—") : (purchRow?.code || "—");
+                                            const party = t.kind === "SALE" ? (saleRow?.partyName || "") : (purchRow?.partyName || "");
+                                            return (
+                                                <tr key={t.id}>
+                                                    <td data-th="Type">{t.kind === "SALE" ? "Receipt" : "Payment"}</td>
+                                                    <td data-th="Bill">{billCode} {party ? `• ${party}` : ""}</td>
+                                                    <td data-th="Date">{new Date(t.paid_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                                    <td
+                                                        className={`right txn-amt ${t.kind === "SALE" ? "txn-amt--in" : "txn-amt--out"}`}
+                                                        data-th="Amount"
+                                                    >
+                                                        {inrFmt(t.amount)}
+                                                    </td>
+                                                    <td data-th="Notes">{t.notes || "-"}</td>
+                                                </tr>
+                                            );
+                                        })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Transactions pagination */}
+                    <div className="pager">
+                        <div className="muted">
+                            {paysPaged.total} total • Page {paysPaged.page} of {paysPaged.totalPages}
+                        </div>
+                        <div className="pager-controls">
+                            <button className="btn" onClick={() => setPayPage(p => Math.max(1, p - 1))} disabled={paysPaged.page <= 1}>Prev</button>
+                            <button className="btn" onClick={() => setPayPage(p => Math.min(paysPaged.totalPages, p + 1))} disabled={paysPaged.page >= paysPaged.totalPages}>Next</button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Record Payment / Receipt Modal */}
+                {recordOpen && target && (
+                    <div className="modal">
+                        <div className="modal-card">
+                            <div className="modal-head">
+                                <h2 className="modal-title">
+                                    {target.kind === "SALE" ? "Record Receipt" : "Record Payment"}
+                                </h2>
+                                <button className="btn icon" onClick={() => setRecordOpen(false)} aria-label="Close">×</button>
+                            </div>
+
+                            <form onSubmit={savePayment}>
+                                <div className="details-grid">
+                                    <div className="details-col">
+                                        <div className="detail-row">
+                                            <div className="detail-label">Bill</div>
+                                            <div className="detail-value">{target.code}</div>
+                                        </div>
+                                        <div className="detail-row">
+                                            <div className="detail-label">{target.kind === "SALE" ? "Client" : "Vendor"}</div>
+                                            <div className="detail-value">{target.partyName}</div>
+                                        </div>
+                                    </div>
+                                    <div className="details-col">
+                                        <div className="detail-row">
+                                            <div className="detail-label">Pending</div>
+                                            <div className="detail-value">{inrFmt(target.balance || 0)}</div>
+                                        </div>
+                                        <label className="detail-row">
+                                            <span className="detail-label">Paid At *</span>
+                                            <input className="detail-value" type="datetime-local" required value={pay.paid_at} onChange={(e) => setPay(p => ({ ...p, paid_at: e.target.value }))} />
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <label className="lbl">
+                                    <span className="lbl-text">Amount *</span>
+                                    <input className="input" type="number" step="0.01" required value={pay.amount} onChange={(e) => setPay(p => ({ ...p, amount: e.target.value }))} />
+                                </label>
+
+                                <label className="lbl">
+                                    <span className="lbl-text">Notes</span>
+                                    <input className="input" maxLength={200} value={pay.notes} onChange={(e) => setPay(p => ({ ...p, notes: e.target.value }))} />
+                                </label>
+
+                                <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
+                                    <div className="muted">Defaulted to pending amount. Adjust if part-payment.</div>
+                                </div>
+                                <div className="modal-actions margin-bottom">
+                                    <button type="button" className="btn modal-btn" onClick={() => setRecordOpen(false)}>Cancel</button>
+                                    <button type="submit" className="btn modal-btn primary">Save</button>
+                                </div>
+                            </form>
+
+                        </div>
+                    </div>
+                )}
+
+                {/* View Bill & Transactions Modal */}
+                {viewOpen && view && (
+                    <div className="modal">
+                        <div className="modal-card">
+                            <div className="modal-head">
+                                <h2 className="modal-title">{view.kind === "SALE" ? "Sale" : "Purchase"} — {view.row.code}</h2>
+                                <button className="btn icon" onClick={() => setViewOpen(false)} aria-label="Close">×</button>
+                            </div>
+
+                            <div className="details-grid">
+                                <div className="details-col">
+                                    <div className="detail-row"><div className="detail-label">Party</div><div className="detail-value">{view.row.partyName}</div></div>
+                                    <div className="detail-row"><div className="detail-label">Date</div><div className="detail-value">{new Date(view.row.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</div></div>
+                                    <div className="detail-row"><div className="detail-label">Description</div><div className="detail-value">{view.row.description || "-"}</div></div>
+                                    <div className="detail-row"><div className="detail-label">Balance</div><div className="detail-value" style={{ fontWeight: 700 }}>{inrFmt(view.row.balance)}</div></div>
+                                </div>
+                                <div className="details-col">
+                                    <div className="detail-row"><div className="detail-label">Subtotal</div><div className="detail-value">{inrFmt(view.row.sub)}</div></div>
+                                    <div className="detail-row"><div className="detail-label">Tax</div><div className="detail-value">{inrFmt(view.row.tax)}</div></div>
+                                    <div className="detail-row"><div className="detail-label">Total</div><div className="detail-value">{inrFmt(view.row.total)}</div></div>
+                                    <div className="detail-row"><div className="detail-label">Paid</div><div className="detail-value">{inrFmt(view.row.paid)}</div></div>
+                                </div>
+                            </div>
+
+                            <div className="table-wrap margin-bottom" style={{ marginTop: 8 }}>
+                                <div style={{ fontWeight: 700, marginBottom: 6 }}>Transactions</div>
+                                <table className="tbl margin-bottom">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th className="right">Amount</th>
+                                            <th>Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {view.txns.length === 0 && <tr><td colSpan="3" className="muted center">No transactions</td></tr>}
+                                        {view.txns.map(t => (
+                                            <tr key={t.id}>
+                                                <td data-th="Date">{new Date(t.paid_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                                <td className="right" data-th="Amount">{inrFmt(t.amount)}</td>
+                                                <td data-th="Notes">{t.notes || "-"}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className="modal-actions margin-bottom">
+                                <button className="btn modal-btn" onClick={() => setViewOpen(false)}>Close</button>
+                                {view.row.balance > 0.009 && (
+                                    <button className="btn modal-btn primary" onClick={() => { setViewOpen(false); openRecord(view.kind, view.row); }}>
+                                        Record {view.kind === "SALE" ? "Receipt" : "Payment"}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </NavFrame>
     );
 }
 

@@ -1419,8 +1419,33 @@ body {
     }
 }
 
-/* End of stylesheet */
+/* Order Action Buttons Container */
+.order-actions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 1rem;
+}
 
+/* Base button styles - using existing .btn class */
+.order-action-btn {
+  width: 100%;
+  text-align: center;
+}
+
+/* Desktop layout */
+@media (min-width: 768px) {
+  .order-actions-container {
+    flex-direction: row;
+    gap: 0.75rem;
+  }
+  
+  .order-action-btn {
+    flex: 1;
+  }
+}
+/* Add your custom styles below */
 
 /* ----------- Mobile toolbar stacking ----------- */
 @media (max-width: 600px) {
@@ -1820,7 +1845,21 @@ body {
         grid-template-columns: 1fr 1fr;
         gap: 12px;
     }
+
+    .parties-modal-filters {
+        border-top: 2px solid var(--border);
+        padding-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px;
+    }
+
+    .parties-download-btn-mobile {
+        display: none;
+        width: 100%;
+    }
 }
+
 @media (max-width: 600px) {
     .summary-grid {
         width: 100%;
@@ -1828,4 +1867,164 @@ body {
         grid-template-columns: 1fr;
         gap: 12px;
     }
+
+    .tab-spacer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .tabs {
+        width: 100%;
+    }
+
+    .tab-btn {
+        width: 100%;
+    }
+
+    .parties-download-btn-pc {
+        display: none;
+    }
+
+    .parties-download-btn-mobile {
+        width: 100%;
+    }
+}
+
+/* ===========================
+   Demand Bar (unique classes)
+   =========================== */
+.demand-bar {
+    display: flex;
+    align-items: flex-start !important;
+    gap: 12px;
+    padding: 8px 12px;
+}
+
+.demand-bar__title {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.2;
+}
+
+.demand-bar__controls {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+
+/* ===========================
+   Responsive behavior
+   - Desktop (>=1024px): title left, controls right (row)
+   - Tablet (>=640px <1024px): row, tighter gaps
+   - Mobile (<640px): stack title above controls
+   =========================== */
+
+/* Tablet */
+@media (max-width: 1023.98px) {
+    .demand-bar {
+        gap: 10px;
+        padding: 8px;
+    }
+
+    .demand-bar__title {
+        font-size: 0.98rem;
+    }
+
+    .demand-bar__controls {
+        gap: 8px;
+    }
+}
+
+/* Mobile */
+@media (max-width: 639.98px) {
+    .demand-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .demand-bar__controls {
+        width: 100%;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .demand-reload-btn {
+        flex: 0 0 auto;
+    }
+}
+
+/* Optional: very small screens */
+@media (max-width: 360px) {
+    .demand-bar__controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .demand-reload-btn {
+        width: 100%;
+    }
+}
+
+/* Accessibility: high-contrast hover/focus cues, matching your UI */
+.demand-reload-btn:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.5);
+    outline-offset: 2px;
+}
+
+.demand-filter:hover span {
+    color: var(--muted);
+}
+
+/* demand-filter.css */
+.demand-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    color: var(--text);
+    user-select: none;
+    background-color: transparent;
+}
+
+/* Style for the dropdown */
+.demand-filter select {
+    height: 36px;
+    padding: 6px 32px 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background-color: #fff;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.demand-filter select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.demand-filter select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Remove default arrow in IE */
+.demand-filter select::-ms-expand {
+    display: none;
 }

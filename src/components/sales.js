@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { createPortal } from "react-dom";
 import "../styles/clients.css";
 import b2bLogo from "../assets/b2b_logo.png"; // logo for invoice header
+import NavFrame from "./nav";
 
 /** ---------- IST (Asia/Kolkata) helpers ---------- **/
 const IST_TZ = "Asia/Kolkata";
@@ -210,8 +211,13 @@ export default function Sales() {
 
   // refs
   const [clients, setClients] = useState([]);
-  const [products, setProducts] = useState([]); // id, name, unit, selling_price, tax_rate
+  const [products, setProducts] = useState([]); // id, name, unit, selling_price, tax_rate, hsn_sac?
   const [inventory, setInventory] = useState([]); // raw rows
+
+  // NEW: orders for selected client
+  const [clientOrders, setClientOrders] = useState([]);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [orderItemsSnapshot, setOrderItemsSnapshot] = useState([]); // cache last loaded order items (for shortage banner)
 
   // ui
   const [loading, setLoading] = useState(false);
@@ -244,7 +250,7 @@ export default function Sales() {
     (async () => {
       const [{ data: c }, { data: p }, { data: inv }] = await Promise.all([
         supabase.from("clients").select("id,name,contact,billing_address,shipping_address,credit").order("name"),
-        supabase.from("products").select("id,name,unit,selling_price,tax_rate").order("name"),
+        supabase.from("products").select("id,name,unit,selling_price,tax_rate,hsn_sac").order("name"),
         supabase.from("inventory").select("id,product_id,client_id,qty_available,total_value").order("product_id"),
       ]);
       setClients(c || []);
@@ -291,14 +297,52 @@ export default function Sales() {
     }
     return groupedInventory.get(genericKey(product_id))?.qty_available || 0;
   }
+  // NEW: total available across (GENERIC + CLIENT)
+  function availableTotalFor(product_id, cid) {
+    const gen = groupedInventory.get(genericKey(product_id))?.qty_available || 0;
+    const cli = cid ? (groupedInventory.get(clientKey(product_id, cid))?.qty_available || 0) : 0;
+    return Number(gen) + Number(cli);
+  }
+
+  // NEW: compute shortages for current order items (or current lines)
+  const shortages = useMemo(() => {
+    // Prefer to show shortages for the selected order snapshot (so it's stable even if user edits lines),
+    // otherwise infer from current lines.
+    const basis = orderItemsSnapshot.length > 0 ? orderItemsSnapshot : lines.map(l => ({
+      product_id: l.product_id,
+      quantity: Number(l.quantity || 0),
+      unit: l.unit,
+    }));
+    const list = [];
+    for (const it of basis) {
+      if (!it?.product_id) continue;
+      const need = Number(it.quantity || 0);
+      if (need <= 0) continue;
+      const have = availableTotalFor(it.product_id, header.client_id);
+      if (need > have) {
+        list.push({
+          product_id: it.product_id,
+          name: productName(it.product_id),
+          need,
+          have,
+          shortage: Number((need - have).toFixed(3)),
+          unit: it.unit || productMeta(it.product_id)?.unit || ""
+        });
+      }
+    }
+    return list;
+  }, [orderItemsSnapshot, lines, header.client_id, groupedInventory]);
 
   // open modal
   async function openAdd() {
     setSelected(null);
-    setHeader({ ...EMPTY_HEADER, sale_at: istNowInput() });
+    setHeader({ ...EMPTY_HEADER, sale_at: istNowInput(), with_tax: false });
     setLines([{ ...EMPTY_LINE }]);
     setIsEditing(true);
     setModalOpen(true);
+    setClientOrders([]);
+    setSelectedOrderId("");
+    setOrderItemsSnapshot([]);
   }
 
   async function openView(row) {
@@ -319,8 +363,13 @@ export default function Sales() {
       .order("created_at");
     setLines((li || []).map((x) => ({ ...x, from_bucket: "GENERIC", max_qty: 0 })));
 
+    // load that client's active orders so user can relate, but don't preselect
+    await loadOrdersForClient(row.client_id);
+
     setIsEditing(false);
     setModalOpen(true);
+    setSelectedOrderId("");
+    setOrderItemsSnapshot([]);
   }
 
   function closeModal() {
@@ -331,6 +380,9 @@ export default function Sales() {
     setInvoicePromptOpen(false);
     setHeader(EMPTY_HEADER);
     setLines([{ ...EMPTY_LINE }]);
+    setClientOrders([]);
+    setSelectedOrderId("");
+    setOrderItemsSnapshot([]);
   }
 
   // line ops
@@ -444,7 +496,7 @@ export default function Sales() {
   useEffect(() => { fetchSales(); /* eslint-disable-next-line */ }, [page, search, filterClient, datePreset, customStart, customEnd, filterTax]);
 
   // save (create)
-  async function handleSave(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!header.client_id) { alert("Select client"); return; }
     if (lines.length === 0) { alert("Add at least one line"); return; }
@@ -460,7 +512,7 @@ export default function Sales() {
     const headerPayload = {
       client_id: header.client_id,
       sale_at: istInputToUTCDate(header.sale_at),
-      with_tax: !!header.with_tax,
+      with_tax: false, // Always set to false by default
       description: header.description?.trim() || null,
       delivered: !!header.delivered,
       delivery_at: header.delivery_at ? istInputToUTCDate(header.delivery_at) : null,
@@ -469,64 +521,94 @@ export default function Sales() {
     // Pre-compute total right now to apply to credit later
     const saleTotalAmount = Number(totals.grand || 0);
 
-    // 1) Create sale
-    const { data: created, error: e1 } = await supabase.from("sales").insert([headerPayload]).select().single();
-    if (e1) { alert("Create failed"); console.error(e1); return; }
-
-    // 2) Create items
-    const items = lines.map((ln) => ({
-      sale_id: created.id,
-      product_id: ln.product_id,
-      quantity: Number(ln.quantity),
-      unit: ln.unit,
-      unit_price: Number(ln.unit_price),
-      tax_rate: ln.tax_rate,
-    }));
-    const { error: e2 } = await supabase.from("sales_items").insert(items);
-    if (e2) { alert("Item create failed"); console.error(e2); return; }
-
-    // 3) Deduct inventory
-    for (const ln of lines) {
-      const q = Number(ln.quantity);
-      if (ln.from_bucket === "CLIENT" && header.client_id) {
-        await decrementInventoryAcrossRows(ln.product_id, header.client_id, q);
-      } else {
-        await decrementInventoryAcrossRows(ln.product_id, null, q);
-      }
-    }
-
-    // 4) Update client's credit (add grand total of this sale)
-    //    If you prefer strict atomicity under high concurrency,
-    //    consider using a SQL function (RPC) to increment on the server.
+    // Start transaction
     try {
-      // Fetch latest credit to avoid stale local state
+      // 1) Create sale
+      const { data: created, error: e1 } = await supabase.from("sales").insert([headerPayload]).select().single();
+      if (e1) throw new Error("Create sale failed: " + e1.message);
+
+      // 2) Create items
+      const items = lines.map((ln) => ({
+        sale_id: created.id,
+        product_id: ln.product_id,
+        quantity: Number(ln.quantity),
+        unit: ln.unit,
+        unit_price: Number(ln.unit_price),
+        tax_rate: ln.tax_rate,
+      }));
+      const { error: e2 } = await supabase.from("sales_items").insert(items);
+      if (e2) throw new Error("Create items failed: " + e2.message);
+
+      // 3) Deduct inventory
+      for (const ln of lines) {
+        const q = Number(ln.quantity);
+        const clientId = ln.from_bucket === "CLIENT" && header.client_id ? header.client_id : null;
+
+        // Update regular inventory
+        await decrementInventoryAcrossRows(ln.product_id, clientId, q);
+      }
+
+      // 4) Update order inventory and status ONLY if this sale is from an order
+      if (selectedOrderId) {
+        // Fetch the ordered items to get the exact quantities from the order
+        const { data: orderedItems, error: orderItemsError } = await supabase
+          .from("ordered_items")
+          .select("product_id, quantity")
+          .eq("order_id", selectedOrderId);
+
+        if (orderItemsError) throw new Error("Fetch ordered items failed: " + orderItemsError.message);
+
+        // Decrement order inventory for each product in the order
+        for (const item of orderedItems || []) {
+          const productId = item.product_id;
+          const orderQuantity = Number(item.quantity || 0);
+
+          if (orderQuantity > 0) {
+            await decrementOrderInventory(productId, header.client_id, orderQuantity);
+          }
+        }
+
+        // 5) Update order status to Converted and set active to false
+        const { error: orderErr } = await supabase
+          .from("orders")
+          .update({ status: "Converted", active: false })
+          .eq("id", selectedOrderId);
+
+        if (orderErr) throw new Error("Update order status failed: " + orderErr.message);
+      }
+
+      // 6) Update client's credit (add grand total of this sale)
       const { data: cRow, error: cErr } = await supabase
         .from("clients")
         .select("credit")
         .eq("id", header.client_id)
         .single();
 
-      if (cErr) {
-        console.error("Failed to fetch client credit", cErr);
-      } else {
-        const currentCredit = Number(cRow?.credit || 0);
-        const newCredit = currentCredit + saleTotalAmount;
-        const { error: updErr } = await supabase
-          .from("clients")
-          .update({ credit: newCredit })
-          .eq("id", header.client_id);
+      if (cErr) throw new Error("Fetch client credit failed: " + cErr.message);
 
-        if (updErr) console.error("Failed to update client credit", updErr);
+      const currentCredit = Number(cRow?.credit || 0);
+      const newCredit = currentCredit + saleTotalAmount;
+      const { error: updErr } = await supabase
+        .from("clients")
+        .update({ credit: newCredit })
+        .eq("id", header.client_id);
+
+      if (updErr) throw new Error("Update client credit failed: " + updErr.message);
+
+      await refreshInventory();
+      await fetchSales();
+
+      const fresh = await reloadSaleById(created.id);
+      if (fresh) {
+        await openView(fresh);
+      } else {
+        setSelected(created);
+        setIsEditing(false);
       }
     } catch (err) {
-      console.error("Unexpected error updating client credit", err);
+      console.error("Error in sale creation:", err);
+      alert("Failed to create sale: " + (err.message || "Unknown error"));
     }
-
-    await refreshInventory();
-    await fetchSales();
-
-    const fresh = await reloadSaleById(created.id);
-    if (fresh) { await openView(fresh); } else { setSelected(created); setIsEditing(false); }
   }
 
   // inventory decrement
@@ -553,6 +635,99 @@ export default function Sales() {
         await supabase.from("inventory").update({ qty_available: newQty, total_value: newVal }).eq("id", r.id);
       }
       remaining -= take;
+    }
+  }
+
+  // FIXED: order_inventory decrement with product_type logic
+  async function decrementOrderInventory(product_id, client_id, qtyNeeded) {
+    if (!qtyNeeded || qtyNeeded <= 0) return;
+
+    console.log(`Decrementing order inventory: product=${product_id}, client=${client_id}, qty=${qtyNeeded}`);
+
+    // First, get the product type to determine the logic
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("product_type")
+      .eq("id", product_id)
+      .single();
+
+    if (productError) {
+      console.error("Error fetching product:", productError);
+      throw new Error("Fetch product failed: " + productError.message);
+    }
+
+    const productType = product?.product_type || 'generic';
+    console.log(`Product type: ${productType}`);
+
+    // Determine the client_id to use based on product type
+    const targetClientId = productType === 'generic' ? null : client_id;
+
+    console.log(`Using client_id: ${targetClientId} for product_type: ${productType}`);
+
+    // First try to find an existing row
+    let query = supabase
+      .from("order_inventory")
+      .select("id, qty_available")
+      .eq("product_id", product_id);
+
+    if (targetClientId) {
+      query = query.eq("client_id", targetClientId);
+    } else {
+      query = query.is("client_id", null);
+    }
+
+    const { data: rows, error } = await query;
+    if (error) {
+      console.error("Error fetching order inventory:", error);
+      throw new Error("Fetch order inventory failed: " + error.message);
+    }
+
+    // If no row exists, we need to create one with negative quantity
+    if (!rows || rows.length === 0) {
+      console.log(`No order_inventory record found for product ${product_id} with client ${targetClientId}, creating one with negative quantity`);
+
+      const newQty = -qtyNeeded; // This will be negative since we're consuming from order inventory
+
+      const { data: newRow, error: createError } = await supabase
+        .from("order_inventory")
+        .insert([
+          {
+            product_id: product_id,
+            client_id: targetClientId,
+            qty_available: newQty,
+            last_change_at: new Date().toISOString()
+          }
+        ])
+        .select()
+        .single();
+
+      if (createError) {
+        console.error("Error creating order inventory:", createError);
+        throw new Error("Create order inventory failed: " + createError.message);
+      }
+
+      console.log(`Created new order_inventory record with qty: ${newQty} for client: ${targetClientId}`);
+      return;
+    }
+
+    // Update existing row(s) - should only be one due to unique constraint
+    for (const row of rows) {
+      const currentQty = Number(row.qty_available || 0);
+      const newQty = currentQty - qtyNeeded;
+
+      const { error: updateError } = await supabase
+        .from("order_inventory")
+        .update({
+          qty_available: newQty,
+          last_change_at: new Date().toISOString()
+        })
+        .eq("id", row.id);
+
+      if (updateError) {
+        console.error("Error updating order inventory:", updateError);
+        throw new Error("Update order inventory failed: " + updateError.message);
+      }
+
     }
   }
 
@@ -584,13 +759,9 @@ export default function Sales() {
   }
 
   /** ------------------------------------------------------
-   * Create Invoice flow:
-   * 1) Open prompt (due date + GST/No GST)
-   * 2) Save to sales: invoice_date, invoice_due_date, invoice_with_gst
-   * 3) Open printable tab
+   * Create Invoice flow
    * ----------------------------------------------------- */
   function beginCreateInvoice() {
-    // defaults: due date = 1 month from today, with GST = true
     const oneMonthLater = new Date();
     oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
     setInvoiceDueAt(dateToISTInputValue(oneMonthLater));
@@ -600,7 +771,7 @@ export default function Sales() {
 
   async function confirmCreateInvoice() {
     if (!selected) return;
-    const invoice_date = new Date(); // now (server uses UTC; display in IST)
+    const invoice_date = new Date(); // now
     const invoice_due_date = istInputToUTCDate(invoiceDueAt);
     const { error } = await supabase
       .from("sales")
@@ -608,90 +779,86 @@ export default function Sales() {
       .eq("id", selected.id);
     if (error) { alert("Failed saving invoice details"); console.error(error); return; }
 
-    // reload & open
     const fresh = await reloadSaleById(selected.id);
     if (fresh) setSelected(fresh);
     setInvoicePromptOpen(false);
     await openInvoiceTab(selected.id);
   }
 
-  // Opens a new tab with a printable invoice for a sale
-async function openInvoiceTab(saleId) {
-  const { data: sale, error: eSale } = await supabase
-    .from("sales")
-    .select("id,sale_id,client_id,sale_at,with_tax,description,delivery_at,invoice_date,invoice_due_date,invoice_with_gst")
-    .eq("id", saleId)
-    .single();
-  if (eSale || !sale) { alert("Unable to load sale"); console.error(eSale); return; }
+  // Opens printable invoice tab
+  async function openInvoiceTab(saleId) {
+    const { data: sale, error: eSale } = await supabase
+      .from("sales")
+      .select("id,sale_id,client_id,sale_at,with_tax,description,delivery_at,invoice_date,invoice_due_date,invoice_with_gst")
+      .eq("id", saleId)
+      .single();
+    if (eSale || !sale) { alert("Unable to load sale"); console.error(eSale); return; }
 
-  const { data: client, error: eClient } = await supabase
-    .from("clients")
-    .select("id,name,contact,billing_address,shipping_address")
-    .eq("id", sale.client_id)
-    .single();
-  if (eClient) { alert("Unable to load client"); console.error(eClient); return; }
+    const { data: client, error: eClient } = await supabase
+      .from("clients")
+      .select("id,name,contact,billing_address,shipping_address")
+      .eq("id", sale.client_id)
+      .single();
+    if (eClient) { alert("Unable to load client"); console.error(eClient); return; }
 
-  const { data: items, error: eItems } = await supabase
-    .from("sales_items")
-    .select("product_id,quantity,unit,unit_price,tax_rate")
-    .eq("sale_id", sale.id)
-    .order("created_at");
-  if (eItems) { alert("Unable to load items"); console.error(eItems); return; }
+    const { data: items, error: eItems } = await supabase
+      .from("sales_items")
+      .select("product_id,quantity,unit,unit_price,tax_rate")
+      .eq("sale_id", sale.id)
+      .order("created_at");
+    if (eItems) { alert("Unable to load items"); console.error(eItems); return; }
 
-  // NEW: fetch products with hsn_sac
-  const { data: products, error: eProducts } = await supabase
-    .from("products")
-    .select("id,name,hsn_sac")
-    .order("name");
-  if (eProducts) { alert("Unable to load products"); console.error(eProducts); return; }
+    // NEW: fetch products with hsn_sac
+    const { data: products, error: eProducts } = await supabase
+      .from("products")
+      .select("id,name,hsn_sac")
+      .order("name");
+    if (eProducts) { alert("Unable to load products"); console.error(eProducts); return; }
 
-  const productById = Object.fromEntries((products || []).map(p => [p.id, p]));
-  const useGST = (sale.invoice_with_gst ?? sale.with_tax) ? true : false;
+    const productById = Object.fromEntries((products || []).map(p => [p.id, p]));
+    const useGST = (sale.invoice_with_gst ?? sale.with_tax) ? true : false;
 
-  const parsePct = (txt) => (txt && txt.endsWith("%") ? parseFloat(txt.replace("%", "")) / 100 : 0);
-  const rows = (items || []).map((ln, idx) => {
-    const rate = Number(ln.unit_price || 0);
-    const qty = Number(ln.quantity || 0);
-    const taxable = rate * qty;
-    const pct = useGST && ln.tax_rate !== "Tax Exemption" ? parsePct(ln.tax_rate) : 0;
-    const tax = taxable * pct;
-    const amount = taxable + tax;
-    const prod = productById[ln.product_id] || {};
-    return { idx: idx + 1, ...ln, rate, qty, taxable, pct, tax, amount, pname: prod.name || "", hsn_sac: prod.hsn_sac ?? null };
-  });
+    const parsePct = (txt) => (txt && txt.endsWith("%") ? parseFloat(txt.replace("%", "")) / 100 : 0);
+    const rows = (items || []).map((ln, idx) => {
+      const rate = Number(ln.unit_price || 0);
+      const qty = Number(ln.quantity || 0);
+      const taxable = rate * qty;
+      const pct = useGST && ln.tax_rate !== "Tax Exemption" ? parsePct(ln.tax_rate) : 0;
+      const tax = taxable * pct;
+      const amount = taxable + tax;
+      const prod = productById[ln.product_id] || {};
+      return { idx: idx + 1, ...ln, rate, qty, taxable, pct, tax, amount, pname: prod.name || "", hsn_sac: prod.hsn_sac ?? null };
+    });
 
-  // NEW: decide if we should show HSN/SAC column
-  const showHSN = rows.some(r => r.hsn_sac && String(r.hsn_sac).trim() !== "");
-  console.log("showHSN", showHSN);
-  const subtotal = rows.reduce((s, r) => s + r.taxable, 0);
-  const taxTotal = rows.reduce((s, r) => s + r.tax, 0);
-  const grand = subtotal + taxTotal;
+    const showHSN = rows.some(r => r.hsn_sac && String(r.hsn_sac).trim() !== "");
+    const subtotal = rows.reduce((s, r) => s + r.taxable, 0);
+    const taxTotal = rows.reduce((s, r) => s + r.tax, 0);
+    const grand = subtotal + taxTotal;
 
-  const inrFmt = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number(n || 0));
-  const safe = (s) => (s ?? "").toString().replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
-  const fmtISTDate = (d) => {
-    try {
-      return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
-    } catch { return "-"; }
-  };
+    const inrFmtLoc = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number(n || 0));
+    const safe = (s) => (s ?? "").toString().replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+    const fmtISTDateLoc = (d) => {
+      try {
+        return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+      } catch { return "-"; }
+    };
 
-  const custAddress = client?.billing_address || client?.shipping_address || "-";
-  const custPhone = client?.contact || "-";
+    const custAddress = client?.billing_address || client?.shipping_address || "-";
 
-  // Generate filename: B2B_TRADERS-CLIENT_NAME-DATE
-  const clientNameUpper = (client?.name || "CUSTOMER").toUpperCase().replace(/\s+/g, "_");
-  const currentDate = new Date().toLocaleDateString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
-  }).replace(/\//g, "-");
-  const filename = `B2B_TRADERS-${clientNameUpper}-${currentDate}`;
+    // Generate filename
+    const clientNameUpper = (client?.name || "CUSTOMER").toUpperCase().replace(/\s+/g, "_");
+    const currentDate = new Date().toLocaleDateString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }).replace(/\//g, "-");
+    const filename = `B2B_TRADERS-${clientNameUpper}-${currentDate}`;
 
-  const supabaseUrl = supabase.supabaseUrl;
-  const supabaseKey = supabase.supabaseKey;
+    const supabaseUrl = supabase.supabaseUrl;
+    const supabaseKey = supabase.supabaseKey;
 
-  const html = `
+    const html = `
 <!doctype html>
 <html>
 <head>
@@ -814,8 +981,8 @@ async function openInvoiceTab(saleId) {
       <div class="col">
         <b>Invoice #: ${safe(sale.sale_id || "")}</b>
         <div class="kvs">
-          <div class="kv-label">Invoice Date:</div><div>${safe(fmtISTDate(sale.invoice_date || sale.sale_at))}</div>
-          <div class="kv-label">Due Date:</div><div>${safe(fmtISTDate(sale.invoice_due_date || sale.invoice_date || sale.sale_at))}</div>
+          <div class="kv-label">Invoice Date:</div><div>${safe(fmtISTDateLoc(sale.invoice_date || sale.sale_at))}</div>
+          <div class="kv-label">Due Date:</div><div>${safe(fmtISTDateLoc(sale.invoice_due_date || sale.invoice_date || sale.sale_at))}</div>
         </div>
       </div>
       <div class="col">
@@ -845,11 +1012,11 @@ async function openInvoiceTab(saleId) {
             <td class="center">${r.idx}</td>
             <td>${safe(r.pname)}</td>
             ${showHSN ? `<td>${safe(r.hsn_sac || "")}</td>` : ''}
-            <td class="right">${inrFmt(r.rate)}</td>
+            <td class="right">${inrFmtLoc(r.rate)}</td>
             <td class="right">${r.qty} ${safe(r.unit || "")}</td>
-            <td class="right">${inrFmt(r.taxable)}</td>
-            ${useGST ? `<td class="right">${inrFmt(r.tax)}</td>` : ''}
-            <td class="right">${inrFmt(r.amount)}</td>
+            <td class="right">${inrFmtLoc(r.taxable)}</td>
+            ${useGST ? `<td class="right">${inrFmtLoc(r.tax)}</td>` : ''}
+            <td class="right">${inrFmtLoc(r.amount)}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -860,11 +1027,11 @@ async function openInvoiceTab(saleId) {
       <div class="totals" id="totalsSection">
         <table>
           <tbody>
-            <tr><td>Subtotal</td><td class="right">${inrFmt(subtotal)}</td></tr>
-            ${useGST ? `<tr><td>Tax</td><td class="right">${inrFmt(taxTotal)}</td></tr>` : ''}
+            <tr><td>Subtotal</td><td class="right">${inrFmtLoc(subtotal)}</td></tr>
+            ${useGST ? `<tr><td>Tax</td><td class="right">${inrFmtLoc(taxTotal)}</td></tr>` : ''}
           </tbody>
           <tfoot>
-            <tr class="grand"><td><b>Total</b></td><td class="right"><b>${inrFmt(grand)}</b></td></tr>
+            <tr class="grand"><td><b>Total</b></td><td class="right"><b>${inrFmtLoc(grand)}</b></td></tr>
           </tfoot>
         </table>
       </div>
@@ -875,7 +1042,7 @@ async function openInvoiceTab(saleId) {
         <div style="margin-bottom:6px"><b>Total Amount (in words): </b> ${numberToWords(Math.floor(grand))} Rupees Only</div>
       </div>
       <div style="font-size:14px;font-weight:500">Amount Payable</div>
-      <div style="font-size:18px;font-weight:600;color:#2563eb">${inrFmt(grand)}</div>
+      <div style="font-size:18px;font-weight:600;color:#2563eb">${inrFmtLoc(grand)}</div>
     </div>
 
     <div class="for">For B2B TRADERS</div>
@@ -926,7 +1093,6 @@ async function openInvoiceTab(saleId) {
       const totalBar = document.getElementById('totalBar');
       const notes = totalBar.querySelector('.notes');
 
-      // detect if HSN column exists by header text
       const hasHSN = Array.from(thead.querySelectorAll('th')).some(th => th.textContent.trim().toUpperCase().includes('HSN'));
       
       if (isChallan) {
@@ -941,9 +1107,7 @@ async function openInvoiceTab(saleId) {
         const rows = Array.from(tbody.querySelectorAll('tr'));
         rows.forEach((row, idx) => {
           const cells = row.querySelectorAll('td');
-          // indexes: with HSN => [#, Item, HSN, Rate, Qty, Taxable, (Tax), Amount]
-          // without HSN => [#, Item, Rate, Qty, Taxable, (Tax), Amount]
-          const itemIdx = hasHSN ? 1 : 1; // item always after '#'
+          const itemIdx = 1;
           const qtyIdx  = hasHSN ? 4 : 3;
           const itemName = cells[itemIdx]?.textContent || '';
           const qty = cells[qtyIdx]?.textContent || '';
@@ -1023,17 +1187,14 @@ async function openInvoiceTab(saleId) {
         .select('product_id,quantity,unit,unit_price,tax_rate')
         .eq('sale_id', sale.id).order('created_at');
 
-      // NEW: fetch products with hsn_sac for rebuild
       const { data: products } = await sb.from('products')
         .select('id,name,hsn_sac').order('name');
 
-      // Update due date in meta section
       const dueDateDisplay = document.querySelector('.meta .kvs div:nth-child(4)');
       if (dueDateDisplay) {
         dueDateDisplay.textContent = fmtISTDate(sale.invoice_due_date || sale.invoice_date || sale.sale_at);
       }
 
-      // Update edit form values
       document.getElementById('editDueDate').value = dateToISTInputValue(new Date(sale.invoice_due_date || sale.invoice_date || sale.sale_at));
       document.getElementById('editGST').value = sale.invoice_with_gst ? 'true' : 'false';
 
@@ -1063,7 +1224,6 @@ async function openInvoiceTab(saleId) {
       const inrFmt = (n) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number(n || 0));
       const safe = (s) => (s ?? "").toString().replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 
-      // Head
       const thead = document.querySelector('table thead tr');
       thead.innerHTML = \`
         <th style="width:36px" class="center">#</th>
@@ -1076,7 +1236,6 @@ async function openInvoiceTab(saleId) {
         <th class="right">Amount</th>
       \`;
 
-      // Body
       const tbody = document.querySelector('table tbody');
       tbody.innerHTML = rows.map(r => \`
         <tr>
@@ -1091,7 +1250,6 @@ async function openInvoiceTab(saleId) {
         </tr>
       \`).join('');
 
-      // Totals
       const totalsBody = document.querySelector('.totals table tbody');
       totalsBody.innerHTML = \`
         <tr><td>Subtotal</td><td class="right">\${inrFmt(subtotal)}</td></tr>
@@ -1100,7 +1258,6 @@ async function openInvoiceTab(saleId) {
       const totalsFoot = document.querySelector('.totals table tfoot');
       totalsFoot.innerHTML = \`<tr class="grand"><td><b>Total</b></td><td class="right"><b>\${inrFmt(grand)}</b></td></tr>\`;
 
-      // Amount section
       const numberToWords = ${numberToWords.toString()};
       const amountSection = document.getElementById('amountSection');
       if (amountSection) {
@@ -1113,7 +1270,6 @@ async function openInvoiceTab(saleId) {
         \`;
       }
 
-      // If user currently has Delivery Challan selected, re-apply that simplified view
       const select = document.getElementById('invoiceType');
       if (select && select.value === 'DELIVERY CHALLAN') toggleChallanMode(true);
     }
@@ -1141,11 +1297,82 @@ async function openInvoiceTab(saleId) {
 </html>
   `;
 
-  const w = window.open("", "_blank");
-  if (!w) { alert("Pop-up blocked. Please allow pop-ups for this site."); return; }
-  w.document.open(); w.document.write(html); w.document.close();
-}
+    const w = window.open("", "_blank");
+    if (!w) { alert("Pop-up blocked. Please allow pop-ups for this site."); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+  }
 
+  // NEW: Load active orders for selected client
+  async function loadOrdersForClient(clientId) {
+    setClientOrders([]);
+    setSelectedOrderId("");
+    setOrderItemsSnapshot([]);
+    if (!clientId) return;
+    const { data, error } = await supabase
+      .from("orders")
+      .select("id,order_code,order_at,status")
+      .eq("client_id", clientId)
+      .eq("status", "Pending")
+      .order("order_at", { ascending: false });
+    if (error) { console.error(error); return; }
+    setClientOrders(data || []);
+  }
+
+  // When client changes in the form, also load their active orders
+  useEffect(() => {
+    if (isEditing && header.client_id) {
+      loadOrdersForClient(header.client_id);
+    } else {
+      setClientOrders([]);
+      setSelectedOrderId("");
+      setOrderItemsSnapshot([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [header.client_id, isEditing]);
+
+  // Auto-populate lines from selected order
+  async function applyOrderToLines(orderId) {
+    setSelectedOrderId(orderId || "");
+    setOrderItemsSnapshot([]);
+    if (!orderId) return;
+
+    const [{ data: oi, error: e1 }] = await Promise.all([
+      supabase
+        .from("ordered_items")
+        .select("product_id,quantity,unit,unit_price,tax_rate")
+        .eq("order_id", orderId)
+        .order("created_at"),
+    ]);
+    if (e1) { console.error(e1); return; }
+
+    // Snapshot for shortage banner (use the exact order quantities)
+    setOrderItemsSnapshot(
+      (oi || []).map(it => ({
+        product_id: it.product_id,
+        quantity: Number(it.quantity || 0),
+        unit: it.unit || productMeta(it.product_id)?.unit || "",
+      }))
+    );
+
+    // Build sale lines: prefer ordered unit/unit_price if present; fallback to product meta
+    const newLines = (oi || []).map(it => {
+      const p = productMeta(it.product_id);
+      // decide default bucket to show some availability if possible
+      const clientAvail = availableFor(it.product_id, header.client_id, "CLIENT");
+      const bucket = clientAvail > 0 ? "CLIENT" : "GENERIC";
+      return {
+        product_id: it.product_id,
+        from_bucket: bucket,
+        quantity: Number(it.quantity || 0),             // keep full order qty (may exceed availability; warning will show)
+        unit: (it.unit || p?.unit || ""),
+        unit_price: Number((it.unit_price ?? 0)) > 0 ? Number(it.unit_price) : (p?.selling_price ?? ""),
+        tax_rate: it.tax_rate || p?.tax_rate || "Tax Exemption",
+        max_qty: availableFor(it.product_id, header.client_id, bucket),
+      };
+    });
+
+    setLines(newLines.length ? newLines : [{ ...EMPTY_LINE }]);
+  }
 
   // pager
   function goPrev() { setPage((p) => Math.max(1, p - 1)); }
@@ -1178,369 +1405,430 @@ async function openInvoiceTab(saleId) {
   }, [groupedInventory, header.client_id, products]);
 
   return (
-    <div className="wrap">
-      <header className="bar">
-        <h1 className="title">Sales</h1>
-        <button className="btn primary modal-btn" onClick={openAdd}>+ Add Sale</button>
-      </header>
+    <NavFrame>
+      <div className="wrap">
+        <header className="bar">
+          <h1 className="title">Sales</h1>
+          <button className="btn primary modal-btn" onClick={openAdd}>+ Add Sale</button>
+        </header>
 
-      {/* Filters Toolbar */}
-      <div className="toolbar">
-        <input
-          className="input"
-          placeholder="Search by Sale ID…"
-          value={search}
-          onChange={(e) => { setPage(1); setSearch(e.target.value); }}
-        />
+        {/* Filters Toolbar */}
+        <div className="toolbar">
+          <input
+            className="input"
+            placeholder="Search by Sale ID…"
+            value={search}
+            onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+          />
 
-        <SearchSelect
-          placeholder="Filter client…"
-          options={clients.map((c) => ({ id: c.id, label: c.name }))}
-          valueId={filterClient}
-          onChange={(opt) => { setPage(1); setFilterClient(opt?.id || ""); }}
-        />
+          <SearchSelect
+            placeholder="Filter client…"
+            options={clients.map((c) => ({ id: c.id, label: c.name }))}
+            valueId={filterClient}
+            onChange={(opt) => { setPage(1); setFilterClient(opt?.id || ""); }}
+          />
 
-        {/* Single Date Preset Dropdown */}
-        <select
-          className="input"
-          value={datePreset}
-          onChange={(e) => {
-            setPage(1);
-            const v = e.target.value;
-            setDatePreset(v);
-            if (v !== "CUSTOM") { setCustomStart(""); setCustomEnd(""); }
-          }}
-        >
-          <option value="ALL_TIME">All Time</option>
-          <option value="TODAY">Today</option>
-          <option value="YESTERDAY">Yesterday</option>
-          <option value="THIS_WEEK">This Week</option>
-          <option value="LAST_WEEK">Last Week</option>
-          <option value="THIS_MONTH">This Month</option>
-          <option value="LAST_MONTH">Last Month</option>
-          <option value="THIS_YEAR">This Year</option>
-          <option value="LAST_YEAR">Last Year</option>
-          <option value="CUSTOM">Custom Range…</option>
-        </select>
+          <select
+            className="input"
+            value={datePreset}
+            onChange={(e) => {
+              setPage(1);
+              const v = e.target.value;
+              setDatePreset(v);
+              if (v !== "CUSTOM") { setCustomStart(""); setCustomEnd(""); }
+            }}
+          >
+            <option value="ALL_TIME">All Time</option>
+            <option value="TODAY">Today</option>
+            <option value="YESTERDAY">Yesterday</option>
+            <option value="THIS_WEEK">This Week</option>
+            <option value="LAST_WEEK">Last Week</option>
+            <option value="THIS_MONTH">This Month</option>
+            <option value="LAST_MONTH">Last Month</option>
+            <option value="THIS_YEAR">This Year</option>
+            <option value="LAST_YEAR">Last Year</option>
+            <option value="CUSTOM">Custom Range…</option>
+          </select>
 
-        {datePreset === "CUSTOM" && (
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              className="input"
-              type="date"
-              value={customStart}
-              onChange={(e) => { setPage(1); setCustomStart(e.target.value); }}
-            />
-            <input
-              className="input"
-              type="date"
-              value={customEnd}
-              onChange={(e) => { setPage(1); setCustomEnd(e.target.value); }}
-            />
+          {datePreset === "CUSTOM" && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                className="input"
+                type="date"
+                value={customStart}
+                onChange={(e) => { setPage(1); setCustomStart(e.target.value); }}
+              />
+              <input
+                className="input"
+                type="date"
+                value={customEnd}
+                onChange={(e) => { setPage(1); setCustomEnd(e.target.value); }}
+              />
+            </div>
+          )}
+
+          <select
+            className="input"
+            value={filterTax}
+            onChange={(e) => { setPage(1); setFilterTax(e.target.value); }}
+          >
+            <option value="ALL">Tax: All</option>
+            <option value="WITH_TAX">Tax: With Tax</option>
+            <option value="WITHOUT_TAX">Tax: Without Tax</option>
+          </select>
+
+          <button className="btn" onClick={clearFilters}>Clear</button>
+        </div>
+
+        <div className="card">
+          <div className="table-wrap">
+            <table className="tbl">
+              <thead>
+                <tr><th>Sale ID</th><th>Client</th><th>Date</th><th>With Tax</th><th>Delivered</th><th>Delivery Date</th><th className="right">Actions</th></tr>
+              </thead>
+              <tbody>
+                {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
+                {!loading && rows.length === 0 && <tr><td colSpan="7" className="muted center">No sales</td></tr>}
+                {!loading && rows.map((r) => (
+                  <tr key={r.id}>
+                    <td data-th="Sale ID">{r.sale_id}</td>
+                    <td data-th="Client">{clientName(r.client_id)}</td>
+                    <td data-th="Date">{new Date(r.sale_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                    <td data-th="With Tax">{r.with_tax ? "Yes" : "No"}</td>
+                    <td data-th="Delivered">{r.delivered ? "Yes" : "No"}</td>
+                    <td data-th="Delivery Date">{r.delivery_at ? new Date(r.delivery_at).toLocaleString("en-IN", { timeZone: IST_TZ }) : "-"}</td>
+                    <td className="right" data-th="Actions"><button className="btn ghost" onClick={() => openView(r)}>View</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="pager">
+            <div className="muted">{count} total • Page {page} of {totalPages}</div>
+            <div className="pager-controls">
+              <button className="btn" onClick={goPrev} disabled={page <= 1}>Prev</button>
+              <button className="btn" onClick={goNext} disabled={page >= totalPages}>Next</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal */}
+        {modalOpen && (
+          <div className="modal">
+            <div className="modal-card modal-card--xl" style={{ width: "80vw" }}>
+              <div className="modal-head">
+                <h2 className="modal-title">{modalTitle}</h2>
+                <button className="btn icon" onClick={closeModal} aria-label="Close">×</button>
+              </div>
+
+              {/* VIEW MODE */}
+              {!isEditing && selected ? (
+                <div>
+                  <div className="details-grid">
+                    <div className="details-col">
+                      <div className="detail-row"><div className="detail-label">Client</div><div className="detail-value">{clientName(header.client_id)}</div></div>
+                      <div className="detail-row"><div className="detail-label">Sale Date & Time</div>
+                        <div className="detail-value">{new Date(istInputToUTCDate(header.sale_at) || new Date()).toLocaleString("en-IN", { timeZone: IST_TZ })}</div>
+                      </div>
+                    </div>
+                    <div className="details-col">
+                      <div className="detail-row"><div className="detail-label">Tax Mode</div><div className="detail-value">{header.with_tax ? "With Tax" : "Without Tax"}</div></div>
+                      <div className="detail-row"><div className="detail-label">Delivered</div><div className="detail-value">{header.delivered ? "Yes" : "No"}</div></div>
+                    </div>
+                  </div>
+
+                  {/* Items */}
+                  <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}>Line Items</div>
+                  <div className="card" style={{ padding: 12, maxHeight: "52vh", overflow: "auto" }}>
+                    <div className="table-wrap">
+                      <table className="tbl">
+                        <thead style={{ zIndex: "0" }}><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Tax Rate</th></tr></thead>
+                        <tbody>{lines.map((ln, idx) => (
+                          <tr key={idx}>
+                            <td data-th="Product">{productName(ln.product_id)}</td>
+                            <td data-th="Qty">{ln.quantity}</td>
+                            <td data-th="Unit">{ln.unit}</td>
+                            <td data-th="Unit Price">{inr(ln.unit_price)}</td>
+                            <td data-th="Tax Rate">{ln.tax_rate}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Totals & Actions */}
+                  <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
+                    <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Grand Total: <b>{inr(totals.grand)}</b></div>
+                  </div>
+                  <div className="totals-actions-bar margin-bottom">
+                    <button className="btn" onClick={closeModal}>Close</button>
+                    {!header.delivered && (
+                      <button className="btn" onClick={() => setConfirmDeliverOpen(true)}>Mark as Delivered</button>
+                    )}
+                    {selected.invoice_date ? (
+                      <button className="btn primary" onClick={() => openInvoiceTab(selected.id)}>View Invoice</button>
+                    ) : (
+                      <button className="btn primary" onClick={beginCreateInvoice}>Create Invoice</button>
+                    )}
+                  </div>
+
+                  {/* Confirm Deliver */}
+                  {confirmDeliverOpen && (
+                    <div className="confirm">
+                      <div className="confirm-card">
+                        <div className="confirm-title">Mark as delivered?</div>
+                        <div className="detail-row" style={{ margin: "8px 0 12px" }}>
+                          <div className="detail-label">Delivery Date</div>
+                          <input className="input" type="datetime-local" value={header.delivery_at || istNowInput()}
+                            onChange={(e) => setHeader((h) => ({ ...h, delivery_at: e.target.value }))} />
+                        </div>
+                        <div className="confirm-actions">
+                          <button className="btn modal-btn" onClick={() => setConfirmDeliverOpen(false)}>Cancel</button>
+                          <button className="btn primary modal-btn" onClick={markDeliveredNow}>Confirm</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Create Invoice Prompt */}
+                  {invoicePromptOpen && (
+                    <div className="confirm">
+                      <div className="confirm-card">
+                        <div className="confirm-title">Create Invoice</div>
+                        <label className="lbl" style={{ marginTop: 8 }}>
+                          <span className="lbl-text">Invoice Due Date</span>
+                          <input className="input" type="datetime-local" value={invoiceDueAt} onChange={(e) => setInvoiceDueAt(e.target.value)} />
+                        </label>
+                        <div className="detail-row" style={{ gridTemplateColumns: "180px 1fr", marginTop: 8 }}>
+                          <div className="detail-label" style={{ paddingTop: 9 }}>Tax Mode</div>
+                          <div className="detail-value" style={{ gap: 12 }}>
+                            <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <input type="radio" name="inv_gst" checked={!!invoiceWithGST} onChange={() => setInvoiceWithGST(true)} />
+                              <span>With GST</span>
+                            </label>
+                            <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <input type="radio" name="inv_gst" checked={!invoiceWithGST} onChange={() => setInvoiceWithGST(false)} />
+                              <span>Without GST</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div className="confirm-actions" style={{ marginTop: 12 }}>
+                          <button className="btn modal-btn" onClick={() => setInvoicePromptOpen(false)}>Cancel</button>
+                          <button className="btn primary modal-btn" onClick={confirmCreateInvoice}>Save & Open</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* EDIT/CREATE MODE */
+                <form onSubmit={handleSubmit}>
+                  {/* NEW: Shortage banner (only in edit/create) */}
+                  {shortages.length > 0 && (
+                    <div
+                      className="card"
+                      style={{
+                        marginBottom: 12,
+                        border: "1px solid #fecaca",
+                        background: "#fef2f2",
+                        color: "#991b1b",
+                        padding: 12,
+                        borderRadius: 12
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                        Not enough stock to fulfill the selected order:
+                      </div>
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {shortages.map(s => (
+                          <div key={s.product_id} style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                            <span style={{ minWidth: 220 }}>{s.name}</span>
+                            <span className="muted">Needed: {s.need} {s.unit}</span>
+                            <span className="muted">Available: {s.have} {s.unit}</span>
+                            <b>Shortage: {s.shortage} {s.unit}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="details-grid">
+                    <div className="details-col">
+                      <label className="lbl">
+                        <span className="lbl-text">Client *</span>
+                        <SearchSelect
+                          placeholder="Search client…"
+                          options={clients.map((c) => ({ id: c.id, label: c.name }))}
+                          valueId={header.client_id}
+                          onChange={(opt) => {
+                            // Reset order selection when client changes
+                            setSelectedOrderId("");
+                            setOrderItemsSnapshot([]);
+                            setHeader({ ...header, client_id: opt?.id || "" });
+                            // Clear lines to avoid mixing cross-client data
+                            setLines([{ ...EMPTY_LINE }]);
+                          }}
+                        />
+                      </label>
+
+                      {/* NEW: Active Orders dropdown */}
+
+
+                      <label className="lbl">
+                        <span className="lbl-text">Sale Date &amp; Time</span>
+                        <input
+                          className="input"
+                          type="datetime-local"
+                          value={header.sale_at}
+                          onChange={(e) => setHeader({ ...header, sale_at: e.target.value })}
+                          required
+                        />
+                      </label>
+                    </div>
+
+                    <div className="details-col">
+                      <label className="lbl">
+                        <span className="lbl-text">Active Orders for Client</span>
+                        <select
+                          className="input"
+                          value={selectedOrderId}
+                          onChange={(e) => applyOrderToLines(e.target.value)}
+                          disabled={!header.client_id || clientOrders.length === 0}
+                        >
+                          <option value="">
+                            {header.client_id
+                              ? (clientOrders.length ? "Choose an order…" : "No active orders")
+                              : "Select client first"}
+                          </option>
+                          {clientOrders.map(o => (
+                            <option key={o.id} value={o.id}>
+                              {`${o.order_code || o.id.slice(0, 8)} — ${fmtISTDate(o.order_at)} — ${o.status}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="lbl">
+                        <span className="lbl-text">Brief Description</span>
+                        <input
+                          className="input input--sm"
+                          maxLength={160}
+                          placeholder="Brief description…"
+                          value={header.description}
+                          onChange={(e) => setHeader({ ...header, description: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}>Line Items</div>
+                  <div className="card" style={{ padding: 12, maxHeight: "52vh", overflow: "auto" }}>
+                    <div className="line-head">
+                      <div>Product</div><div>Qty</div><div>Unit</div><div>Unit Price</div><div>Tax Rate</div><div></div>
+                    </div>
+
+                    {lines.map((ln, idx) => {
+                      const p = productMeta(ln.product_id);
+                      const isTaxExempt = ln.tax_rate === "Tax Exemption";
+                      const opts = [...genericOptions, ...clientOptions];
+                      const currentValueId = ln.product_id ? `${ln.product_id}::${ln.from_bucket}` : "";
+                      return (
+                        <div key={idx} className="line-wrap">
+                          <div className="line-row line-row--uniform">
+                            <div className="uniform-field">
+                              <SearchSelect
+                                placeholder="Search product…"
+                                options={opts}
+                                valueId={currentValueId}
+                                onChange={(opt) => {
+                                  if (!opt) return onProductChange(idx, null);
+                                  onProductChange(idx, { product_id: opt.product_id, bucket: opt.bucket });
+                                }}
+                              />
+                            </div>
+
+                            <input
+                              className="input uniform-input"
+                              type="number"
+                              inputMode="decimal"
+                              step="0.001"
+                              placeholder="Qty"
+                              value={ln.quantity}
+                              onChange={(e) => {
+                                const v = e.target.value; const n = Number(v);
+                                const max = Number(availableFor(ln.product_id, header.client_id, ln.from_bucket) || 0);
+                                if (v === "" || (n >= 0 && n <= max)) setLine(idx, { quantity: v });
+                              }}
+                              required
+                            />
+
+                            <input
+                              className="input uniform-input"
+                              placeholder="Unit"
+                              value={ln.unit}
+                              onChange={(e) => setLine(idx, { unit: e.target.value })}
+                              required
+                            />
+
+                            <input
+                              className="input uniform-input"
+                              type="number"
+                              inputMode="decimal"
+                              step="0.01"
+                              placeholder="Unit Price"
+                              value={ln.unit_price}
+                              onChange={(e) => setLine(idx, { unit_price: e.target.value })}
+                              required
+                            />
+
+                            <select
+                              className="input uniform-input"
+                              value={ln.tax_rate}
+                              onChange={(e) => setLine(idx, { tax_rate: e.target.value })}
+                              disabled={p?.tax_rate === "Tax Exemption" || isTaxExempt}
+                              required
+                            >
+                              {TAX_OPTIONS.map((t) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+
+                            <button type="button" className="btn danger" onClick={() => removeLine(idx)}>
+                              Remove
+                            </button>
+                          </div>
+
+                          {/* helper text */}
+                          {ln.product_id && (
+                            <div className="line-hint">
+                              Bucket: {ln.from_bucket === "CLIENT" ? "Client-specific" : "Generic"} • Available:{" "}
+                              {availableFor(ln.product_id, header.client_id, ln.from_bucket)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <div style={{ marginTop: 8 }}>
+                      <button type="button" className="btn" onClick={addLine}>+ Add Line</button>
+                    </div>
+                  </div>
+
+                  <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
+                    <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Grand Total: <b>{inr(totals.grand)}</b></div>
+                  </div>
+                  <div className="modal-actions margin-bottom">
+                    <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
+                    <button type="submit" className="btn primary modal-btn">Create</button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         )}
-
-        <select
-          className="input"
-          value={filterTax}
-          onChange={(e) => { setPage(1); setFilterTax(e.target.value); }}
-        >
-          <option value="ALL">Tax: All</option>
-          <option value="WITH_TAX">Tax: With Tax</option>
-          <option value="WITHOUT_TAX">Tax: Without Tax</option>
-        </select>
-
-        <button className="btn" onClick={clearFilters}>Clear</button>
       </div>
-
-      <div className="card">
-        <div className="table-wrap">
-          <table className="tbl">
-            <thead>
-              <tr><th>Sale ID</th><th>Client</th><th>Date</th><th>With Tax</th><th>Delivered</th><th>Delivery Date</th><th className="right">Actions</th></tr>
-            </thead>
-            <tbody>
-              {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan="7" className="muted center">No sales</td></tr>}
-              {!loading && rows.map((r) => (
-                <tr key={r.id}>
-                  <td data-th="Sale ID">{r.sale_id}</td>
-                  <td data-th="Client">{clientName(r.client_id)}</td>
-                  <td data-th="Date">{new Date(r.sale_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
-                  <td data-th="With Tax">{r.with_tax ? "Yes" : "No"}</td>
-                  <td data-th="Delivered">{r.delivered ? "Yes" : "No"}</td>
-                  <td data-th="Delivery Date">{r.delivery_at ? new Date(r.delivery_at).toLocaleString("en-IN", { timeZone: IST_TZ }) : "-"}</td>
-                  <td className="right" data-th="Actions"><button className="btn ghost" onClick={() => openView(r)}>View</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="pager">
-          <div className="muted">{count} total • Page {page} of {totalPages}</div>
-          <div className="pager-controls">
-            <button className="btn" onClick={goPrev} disabled={page <= 1}>Prev</button>
-            <button className="btn" onClick={goNext} disabled={page >= totalPages}>Next</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Modal */}
-      {modalOpen && (
-        <div className="modal">
-          <div className="modal-card modal-card--xl" style={{ width: "80vw" }}>
-            <div className="modal-head">
-              <h2 className="modal-title">{modalTitle}</h2>
-              <button className="btn icon" onClick={closeModal} aria-label="Close">×</button>
-            </div>
-
-            {/* VIEW MODE */}
-            {!isEditing && selected ? (
-              <div>
-                <div className="details-grid">
-                  <div className="details-col">
-                    <div className="detail-row"><div className="detail-label">Client</div><div className="detail-value">{clientName(header.client_id)}</div></div>
-                    <div className="detail-row"><div className="detail-label">Sale Date & Time</div>
-                      <div className="detail-value">{new Date(istInputToUTCDate(header.sale_at) || new Date()).toLocaleString("en-IN", { timeZone: IST_TZ })}</div>
-                    </div>
-                  </div>
-                  <div className="details-col">
-                    <div className="detail-row"><div className="detail-label">Tax Mode</div><div className="detail-value">{header.with_tax ? "With Tax" : "Without Tax"}</div></div>
-                    <div className="detail-row"><div className="detail-label">Delivered</div><div className="detail-value">{header.delivered ? "Yes" : "No"}</div></div>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}>Line Items</div>
-                <div className="card" style={{ padding: 12, maxHeight: "52vh", overflow: "auto" }}>
-                  <div className="table-wrap">
-                    <table className="tbl">
-                      <thead style={{ zIndex: "0" }}><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Tax Rate</th></tr></thead>
-                      <tbody>{lines.map((ln, idx) => (
-                        <tr key={idx}>
-                          <td data-th="Product">{productName(ln.product_id)}</td>
-                          <td data-th="Qty">{ln.quantity}</td>
-                          <td data-th="Unit">{ln.unit}</td>
-                          <td data-th="Unit Price">{inr(ln.unit_price)}</td>
-                          <td data-th="Tax Rate">{ln.tax_rate}</td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Totals & Actions */}
-                <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
-                  <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Grand Total: <b>{inr(totals.grand)}</b></div>
-                </div>
-                <div className="totals-actions-bar margin-bottom">
-                  <button className="btn" onClick={closeModal}>Close</button>
-                  {!header.delivered && (
-                    <button className="btn" onClick={() => setConfirmDeliverOpen(true)}>Mark as Delivered</button>
-                  )}
-                  {selected.invoice_date ? (
-                    <button className="btn primary" onClick={() => openInvoiceTab(selected.id)}>View Invoice</button>
-                  ) : (
-                    <button className="btn primary" onClick={beginCreateInvoice}>Create Invoice</button>
-                  )}
-                </div>
-
-
-                {/* Confirm Deliver */}
-                {confirmDeliverOpen && (
-                  <div className="confirm">
-                    <div className="confirm-card">
-                      <div className="confirm-title">Mark as delivered?</div>
-                      <div className="detail-row" style={{ margin: "8px 0 12px" }}>
-                        <div className="detail-label">Delivery Date</div>
-                        <input className="input" type="datetime-local" value={header.delivery_at || istNowInput()}
-                          onChange={(e) => setHeader((h) => ({ ...h, delivery_at: e.target.value }))} />
-                      </div>
-                      <div className="confirm-actions">
-                        <button className="btn modal-btn" onClick={() => setConfirmDeliverOpen(false)}>Cancel</button>
-                        <button className="btn primary modal-btn" onClick={markDeliveredNow}>Confirm</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Create Invoice Prompt */}
-                {invoicePromptOpen && (
-                  <div className="confirm">
-                    <div className="confirm-card">
-                      <div className="confirm-title">Create Invoice</div>
-                      <label className="lbl" style={{ marginTop: 8 }}>
-                        <span className="lbl-text">Invoice Due Date</span>
-                        <input className="input" type="datetime-local" value={invoiceDueAt} onChange={(e) => setInvoiceDueAt(e.target.value)} />
-                      </label>
-                      <div className="detail-row" style={{ gridTemplateColumns: "180px 1fr", marginTop: 8 }}>
-                        <div className="detail-label" style={{ paddingTop: 9 }}>Tax Mode</div>
-                        <div className="detail-value" style={{ gap: 12 }}>
-                          <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                            <input type="radio" name="inv_gst" checked={!!invoiceWithGST} onChange={() => setInvoiceWithGST(true)} />
-                            <span>With GST</span>
-                          </label>
-                          <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                            <input type="radio" name="inv_gst" checked={!invoiceWithGST} onChange={() => setInvoiceWithGST(false)} />
-                            <span>Without GST</span>
-                          </label>
-                        </div>
-                      </div>
-                      <div className="confirm-actions" style={{ marginTop: 12 }}>
-                        <button className="btn modal-btn" onClick={() => setInvoicePromptOpen(false)}>Cancel</button>
-                        <button className="btn primary modal-btn" onClick={confirmCreateInvoice}>Save & Open</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* EDIT/CREATE MODE */
-              <form onSubmit={handleSave}>
-                <div className="details-grid">
-                  <div className="details-col">
-                    <label className="lbl">
-                      <span className="lbl-text">Client *</span>
-                      <SearchSelect placeholder="Search client…" options={clients.map((c) => ({ id: c.id, label: c.name }))} valueId={header.client_id}
-                        onChange={(opt) => setHeader({ ...header, client_id: opt?.id || "" })} />
-                    </label>
-                    <label className="lbl">
-                      <span className="lbl-text">Sale Date &amp; Time</span>
-                      <input className="input" type="datetime-local" value={header.sale_at} onChange={(e) => setHeader({ ...header, sale_at: e.target.value })} required />
-                    </label>
-                  </div>
-
-                  <div className="details-col">
-                    <div className="detail-row" style={{ gridTemplateColumns: "180px 1fr" }}>
-                      <div className="detail-label" style={{ paddingTop: 9 }}>Tax Mode</div>
-                      <div className="detail-value" style={{ gap: 12 }}>
-                        <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                          <input type="radio" name="taxmode" checked={!!header.with_tax} onChange={() => setHeader({ ...header, with_tax: true })} />
-                          <span>With Tax</span>
-                        </label>
-                        <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                          <input type="radio" name="taxmode" checked={!header.with_tax} onChange={() => setHeader({ ...header, with_tax: false })} />
-                          <span>Without Tax</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <label className="lbl">
-                      <span className="lbl-text">Brief Description</span>
-                      <input className="input input--sm" maxLength={160} placeholder="Brief description…" value={header.description}
-                        onChange={(e) => setHeader({ ...header, description: e.target.value })} />
-                    </label>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}>Line Items</div>
-                <div className="card" style={{ padding: 12, maxHeight: "52vh", overflow: "auto" }}>
-                  <div className="line-head">
-                    <div>Product</div><div>Qty</div><div>Unit</div><div>Unit Price</div><div>Tax Rate</div><div></div>
-                  </div>
-
-                  {lines.map((ln, idx) => {
-                    const p = productMeta(ln.product_id);
-                    const isTaxExempt = ln.tax_rate === "Tax Exemption";
-                    const opts = [...genericOptions, ...clientOptions];
-                    const currentValueId = ln.product_id ? `${ln.product_id}::${ln.from_bucket}` : "";
-                    return (
-                      <div key={idx} className="line-wrap">
-                        <div className="line-row line-row--uniform">
-                          <div className="uniform-field">
-                            <SearchSelect
-                              placeholder="Search product…"
-                              options={opts}
-                              valueId={currentValueId}
-                              onChange={(opt) => {
-                                if (!opt) return onProductChange(idx, null);
-                                onProductChange(idx, { product_id: opt.product_id, bucket: opt.bucket });
-                              }}
-                            />
-                          </div>
-
-                          <input
-                            className="input uniform-input"
-                            type="number"
-                            inputMode="decimal"
-                            step="0.001"
-                            placeholder="Qty"
-                            value={ln.quantity}
-                            onChange={(e) => {
-                              const v = e.target.value; const n = Number(v);
-                              const max = Number(availableFor(ln.product_id, header.client_id, ln.from_bucket) || 0);
-                              if (v === "" || (n >= 0 && n <= max)) setLine(idx, { quantity: v });
-                            }}
-                            required
-                          />
-
-                          <input
-                            className="input uniform-input"
-                            placeholder="Unit"
-                            value={ln.unit}
-                            onChange={(e) => setLine(idx, { unit: e.target.value })}
-                            required
-                          />
-
-                          <input
-                            className="input uniform-input"
-                            type="number"
-                            inputMode="decimal"
-                            step="0.01"
-                            placeholder="Unit Price"
-                            value={ln.unit_price}
-                            onChange={(e) => setLine(idx, { unit_price: e.target.value })}
-                            required
-                          />
-
-                          <select
-                            className="input uniform-input"
-                            value={ln.tax_rate}
-                            onChange={(e) => setLine(idx, { tax_rate: e.target.value })}
-                            disabled={p?.tax_rate === "Tax Exemption" || isTaxExempt}
-                            required
-                          >
-                            {TAX_OPTIONS.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-
-                          <button type="button" className="btn danger" onClick={() => removeLine(idx)}>
-                            Remove
-                          </button>
-                        </div>
-
-                        {/* move helper text BELOW the row so heights stay consistent */}
-                        {ln.product_id && (
-                          <div className="line-hint">
-                            Bucket: {ln.from_bucket === "CLIENT" ? "Client-specific" : "Generic"} • Available:{" "}
-                            {availableFor(ln.product_id, header.client_id, ln.from_bucket)}
-                          </div>
-                        )}
-                      </div>
-
-                    );
-                  })}
-
-                  <div style={{ marginTop: 8 }}>
-                    <button type="button" className="btn" onClick={addLine}>+ Add Line</button>
-                  </div>
-                </div>
-
-                <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
-                  <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Grand Total: <b>{inr(totals.grand)}</b></div>
-                </div>
-                <div className="modal-actions margin-bottom">
-                  <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
-                  <button type="submit" className="btn primary modal-btn">Create</button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    </NavFrame>
   );
 }
 

@@ -493,10 +493,6 @@ export default function GroceriesDashboard() {
 
     return (
         <div className="wrap">
-            <div className="bar">
-                <div className="title">🛒 Groceries — Business Intelligence</div>
-            </div>
-
             {/* Toolbar */}
             <div className="ledger-toolbar card" style={{ padding: 12, marginBottom: 12 }}>
                 <div className="ledger-toolbar__left">
@@ -738,10 +734,10 @@ function LineChartRC({ data, aKey = "revenue", bKey = "cost", aLabel = "Revenue"
     const maxY = Math.max(1, ...ys);
     const n = data.length;
     const gap = 8;
-    
+
     const scaleX = (i) => P + (i * (W - 2 * P)) / Math.max(1, n - 1);
     const scaleY = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxY || 1);
-    
+
     // Y-axis ticks
     const yTicks = 5;
     const yStep = maxY / (yTicks - 1);
@@ -766,7 +762,7 @@ function LineChartRC({ data, aKey = "revenue", bKey = "cost", aLabel = "Revenue"
             {/* Grid lines and Y-axis */}
             <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
             <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-            
+
             {/* Y-axis labels and grid lines */}
             {yAxisLabels.map((value, i) => {
                 const y = scaleY(value);
@@ -779,18 +775,18 @@ function LineChartRC({ data, aKey = "revenue", bKey = "cost", aLabel = "Revenue"
                     </React.Fragment>
                 );
             })}
-            
+
             {/* X-axis labels */}
             {xLabels.map((label, i) => (
-                <text key={`x-${i}`} x={label.x} y={H - P/2} textAnchor="middle" fontSize="11" fill="#666">
+                <text key={`x-${i}`} x={label.x} y={H - P / 2} textAnchor="middle" fontSize="11" fill="#666">
                     {label.label}
                 </text>
             ))}
-            
+
             {/* Lines */}
             <path d={pathFor(aKey)} className="lineA" stroke="#2563eb" strokeWidth="2" fill="none" />
             <path d={pathFor(bKey)} className="lineB" stroke="#ef4444" strokeWidth="2" fill="none" />
-            
+
             {/* Legend */}
             <g>
                 <circle cx={P + 6} cy={P - 10} r={4} fill="#2563eb" />
@@ -798,9 +794,9 @@ function LineChartRC({ data, aKey = "revenue", bKey = "cost", aLabel = "Revenue"
                 <circle cx={P + 86} cy={P - 10} r={4} fill="#ef4444" />
                 <text x={P + 94} y={P - 6} fontSize="12" fill="#333">{bLabel}</text>
             </g>
-            
+
             {/* Y-axis label */}
-            <text x={-H/2} y={15} textAnchor="middle" fontSize="12" fill="#666" transform="rotate(-90, 15, 15)">
+            <text x={-H / 2} y={15} textAnchor="middle" fontSize="12" fill="#666" transform="rotate(-90, 15, 15)">
                 Amount (₹)
             </text>
         </svg>
@@ -815,7 +811,7 @@ function ComboChart({ data }) {
     const maxProfit = Math.max(1, ...profits);
     const maxOrders = Math.max(1, ...orders);
     const n = data.length;
-    
+
     const scaleX = (i) => P + (i * (W - 2 * P)) / Math.max(1, n - 1);
     const scaleYProfit = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxProfit || 1);
     const scaleYOrders = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxOrders || 1);
@@ -824,7 +820,7 @@ function ComboChart({ data }) {
     const yTicksProfit = 5;
     const yStepProfit = maxProfit / (yTicksProfit - 1);
     const yAxisLabelsProfit = Array.from({ length: yTicksProfit }, (_, i) => i * yStepProfit);
-    
+
     // Y-axis ticks for orders (right axis)
     const yTicksOrders = 5;
     const yStepOrders = maxOrders / (yTicksOrders - 1);
@@ -848,7 +844,7 @@ function ComboChart({ data }) {
             <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
             <line x1={W - P} x2={W - P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
             <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-            
+
             {/* Left Y-axis labels (Profit) */}
             {yAxisLabelsProfit.map((value, i) => {
                 const y = scaleYProfit(value);
@@ -861,7 +857,7 @@ function ComboChart({ data }) {
                     </React.Fragment>
                 );
             })}
-            
+
             {/* Right Y-axis labels (Orders) */}
             {yAxisLabelsOrders.map((value, i) => {
                 const y = scaleYOrders(value);
@@ -871,27 +867,27 @@ function ComboChart({ data }) {
                     </text>
                 );
             })}
-            
+
             {/* X-axis labels */}
             {xLabels.map((label, i) => (
-                <text key={`x-${i}`} x={label.x} y={H - P/2} textAnchor="middle" fontSize="11" fill="#666">
+                <text key={`x-${i}`} x={label.x} y={H - P / 2} textAnchor="middle" fontSize="11" fill="#666">
                     {label.label}
                 </text>
             ))}
-            
+
             {/* Order Bars */}
             {data.map((d, i) => {
                 const x = scaleX(i) - 12;
                 const y = scaleYOrders(d.orders || 0);
                 const h = H - P - y;
                 return (
-                    <rect 
-                        key={i} 
-                        x={x} 
-                        y={y} 
-                        width={24} 
-                        height={h} 
-                        fill="rgba(37, 99, 235, 0.15)" 
+                    <rect
+                        key={i}
+                        x={x}
+                        y={y}
+                        width={24}
+                        height={h}
+                        fill="rgba(37, 99, 235, 0.15)"
                         rx="2"
                         ry="2"
                     />
@@ -899,14 +895,14 @@ function ComboChart({ data }) {
             })}
 
             {/* Profit Line */}
-            <path 
-                d={data.map((d, i) => `${i ? "L" : "M"}${scaleX(i)},${scaleYProfit(d.profit || 0)}`).join(" ")} 
-                className="combo-line" 
-                stroke="#10B981" 
-                strokeWidth="2" 
-                fill="none" 
+            <path
+                d={data.map((d, i) => `${i ? "L" : "M"}${scaleX(i)},${scaleYProfit(d.profit || 0)}`).join(" ")}
+                className="combo-line"
+                stroke="#10B981"
+                strokeWidth="2"
+                fill="none"
             />
-            
+
             {/* Legend */}
             <g>
                 <circle cx={P + 6} cy={P - 10} r={4} fill="#10B981" />
@@ -914,12 +910,12 @@ function ComboChart({ data }) {
                 <rect x={P + 90} y={P - 14} width={16} height={8} fill="rgba(37,99,235,.15)" rx="2" ry="2" />
                 <text x={P + 110} y={P - 6} fontSize="12" fill="#333">Orders (count)</text>
             </g>
-            
+
             {/* Y-axis labels */}
-            <text x={-H/2} y={15} textAnchor="middle" fontSize="12" fill="#666" transform="rotate(-90, 15, 15)">
+            <text x={-H / 2} y={15} textAnchor="middle" fontSize="12" fill="#666" transform="rotate(-90, 15, 15)">
                 Profit (₹)
             </text>
-            <text x={W + H/2 - 30} y={-15} textAnchor="middle" fontSize="12" fill="#2563eb" transform="rotate(90, 15, 15)">
+            <text x={W + H / 2 - 30} y={-15} textAnchor="middle" fontSize="12" fill="#2563eb" transform="rotate(90, 15, 15)">
                 Orders
             </text>
         </svg>
@@ -933,10 +929,10 @@ function ProductPerformanceChart({ data }) {
     const n = Math.min(8, data.length);
     const gap = 12;
     const barW = Math.max(15, (W - 2 * P) / n - gap);
-    
+
     const scaleX = (i) => P + i * (barW + gap);
     const scaleY = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxProfit || 1);
-    
+
     // Y-axis ticks
     const yTicks = 5;
     const yStep = maxProfit / (yTicks - 1);
@@ -947,7 +943,7 @@ function ProductPerformanceChart({ data }) {
             {/* Grid lines and Y-axis */}
             <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
             <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-            
+
             {/* Y-axis labels and grid lines */}
             {yAxisLabels.map((value, i) => {
                 const y = scaleY(value);
@@ -960,7 +956,7 @@ function ProductPerformanceChart({ data }) {
                     </React.Fragment>
                 );
             })}
-            
+
             {/* Bars with labels */}
             {data.slice(0, n).map((d, i) => {
                 const x = scaleX(i);
@@ -968,37 +964,37 @@ function ProductPerformanceChart({ data }) {
                 const h = H - P - y;
                 const color = d.profit > 0 ? "#10B981" : "#EF4444";
                 const label = d.product ? String(d.product).substring(0, 12) : ''; // Truncate long names
-                
+
                 return (
                     <g key={i}>
-                        <rect 
-                            x={x} 
-                            y={y} 
-                            width={barW} 
-                            height={h} 
+                        <rect
+                            x={x}
+                            y={y}
+                            width={barW}
+                            height={h}
                             fill={color}
                             rx="2"
                             ry="2"
                         />
                         {/* X-axis labels */}
-                        <text 
-                            x={x + barW/2} 
-                            y={H - P/2} 
-                            textAnchor="middle" 
-                            fontSize="11" 
+                        <text
+                            x={x + barW / 2}
+                            y={H - P / 2}
+                            textAnchor="middle"
+                            fontSize="11"
                             fill="#666"
-                            transform={`rotate(-45, ${x + barW/2}, ${H - P/2})`}
+                            transform={`rotate(-45, ${x + barW / 2}, ${H - P / 2})`}
                             style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}
                         >
                             {label}
                         </text>
                         {/* Value labels on top of bars */}
                         {h > 20 && (
-                            <text 
-                                x={x + barW/2} 
-                                y={y - 5} 
-                                textAnchor="middle" 
-                                fontSize="10" 
+                            <text
+                                x={x + barW / 2}
+                                y={y - 5}
+                                textAnchor="middle"
+                                fontSize="10"
                                 fontWeight="500"
                                 fill="#444"
                             >
@@ -1008,9 +1004,9 @@ function ProductPerformanceChart({ data }) {
                     </g>
                 );
             })}
-            
+
             {/* Y-axis label */}
-            <text x={-H/2} y={15} textAnchor="middle" fontSize="12" fill="#666" transform="rotate(-90, 15, 15)">
+            <text x={-H / 2} y={15} textAnchor="middle" fontSize="12" fill="#666" transform="rotate(-90, 15, 15)">
                 Profit (₹)
             </text>
         </svg>
@@ -1025,15 +1021,15 @@ function BarChart({ data, xKey, yKey, colorMap = {}, yLabel = 'Value', yFormatte
     const n = Math.max(1, Math.min(data.length, 10)); // Limit to 10 bars for better readability
     const gap = 12;
     const barW = Math.max(15, (W - 2 * P) / n - gap);
-    
+
     const scaleX = (i) => P + i * (barW + gap);
     const scaleY = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxY || 1);
-    
+
     // Y-axis ticks - use fewer ticks for cleaner look
     const yTicks = 4;
     const yStep = maxY / (yTicks - 1);
     const yAxisLabels = Array.from({ length: yTicks }, (_, i) => yFormatter(i * yStep));
-    
+
     // Get color for each bar
     const getColor = (key) => {
         if (typeof colorMap === 'function') return colorMap(key);
@@ -1055,18 +1051,18 @@ function BarChart({ data, xKey, yKey, colorMap = {}, yLabel = 'Value', yFormatte
             {/* Grid lines and Y-axis */}
             <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
             <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-            
+
             {/* Y-axis labels and grid lines */}
             {yAxisLabels.map((label, i) => {
                 const y = scaleY((i * yStep));
                 return (
                     <React.Fragment key={`y-${i}`}>
                         <line x1={P} x2={W - P} y1={y} y2={y} className="gridline" stroke="#f0f0f0" strokeWidth="1" />
-                        <text 
-                            x={P - 10} 
-                            y={y + 4} 
-                            textAnchor="end" 
-                            fontSize="10" 
+                        <text
+                            x={P - 10}
+                            y={y + 4}
+                            textAnchor="end"
+                            fontSize="10"
                             fill="#666"
                             style={{ fontFamily: 'monospace' }}
                         >
@@ -1075,7 +1071,7 @@ function BarChart({ data, xKey, yKey, colorMap = {}, yLabel = 'Value', yFormatte
                     </React.Fragment>
                 );
             })}
-            
+
             {/* Bars with labels */}
             {data.slice(0, n).map((d, i) => {
                 const x = scaleX(i);
@@ -1085,29 +1081,29 @@ function BarChart({ data, xKey, yKey, colorMap = {}, yLabel = 'Value', yFormatte
                 const label = String(d[xKey] || '').substring(0, 12); // Truncate long labels
                 const displayValue = yFormatter(d[yKey]);
                 const isShortValue = String(displayValue).length <= 6; // Only show value if it's short enough
-                
+
                 return (
                     <g key={i}>
-                        <rect 
-                            x={x} 
-                            y={y} 
-                            width={barW} 
-                            height={h} 
+                        <rect
+                            x={x}
+                            y={y}
+                            width={barW}
+                            height={h}
                             fill={color}
                             rx="2"
                             ry="2"
                             className="bar"
                         />
                         {/* X-axis labels */}
-                        <text 
-                            x={x + barW/2} 
-                            y={H - P/2} 
-                            textAnchor="middle" 
-                            fontSize="10" 
+                        <text
+                            x={x + barW / 2}
+                            y={H - P / 2}
+                            textAnchor="middle"
+                            fontSize="10"
                             fill="#666"
-                            transform={`rotate(-45, ${x + barW/2}, ${H - P/2})`}
-                            style={{ 
-                                textOverflow: 'ellipsis', 
+                            transform={`rotate(-45, ${x + barW / 2}, ${H - P / 2})`}
+                            style={{
+                                textOverflow: 'ellipsis',
                                 overflow: 'hidden',
                                 textTransform: 'capitalize'
                             }}
@@ -1116,11 +1112,11 @@ function BarChart({ data, xKey, yKey, colorMap = {}, yLabel = 'Value', yFormatte
                         </text>
                         {/* Value labels on top of bars - only if there's enough space */}
                         {h > 20 && isShortValue && (
-                            <text 
-                                x={x + barW/2} 
-                                y={y - 5} 
-                                textAnchor="middle" 
-                                fontSize="10" 
+                            <text
+                                x={x + barW / 2}
+                                y={y - 5}
+                                textAnchor="middle"
+                                fontSize="10"
                                 fontWeight="500"
                                 fill="#444"
                                 style={{ pointerEvents: 'none' }}
@@ -1131,9 +1127,9 @@ function BarChart({ data, xKey, yKey, colorMap = {}, yLabel = 'Value', yFormatte
                     </g>
                 );
             })}
-            
+
             {/* Y-axis label */}
-            <text x={-H/2} y={20} textAnchor="middle" fontSize="11" fill="#666" transform="rotate(-90, 15, 15)" style={{ fontWeight: 500 }}>
+            <text x={-H / 2} y={20} textAnchor="middle" fontSize="11" fill="#666" transform="rotate(-90, 15, 15)" style={{ fontWeight: 500 }}>
                 {yLabel}
             </text>
         </svg>
@@ -1162,7 +1158,7 @@ function Donut({ open = 0, closed = 0, labels = ["Open", "Closed"], colors = ["#
                 <g transform={`translate(${C},70)`}>
                     {/* Background circle */}
                     <circle r={R} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
-                    
+
                     {/* Closed segment */}
                     <circle
                         r={R}
@@ -1173,7 +1169,7 @@ function Donut({ open = 0, closed = 0, labels = ["Open", "Closed"], colors = ["#
                         strokeDashoffset={circ * 0.25}
                         strokeLinecap="round"
                     />
-                    
+
                     {/* Open segment */}
                     <circle
                         r={R}
@@ -1181,10 +1177,9 @@ function Donut({ open = 0, closed = 0, labels = ["Open", "Closed"], colors = ["#
                         stroke={colors[0]}
                         strokeWidth={strokeWidth}
                         strokeDasharray={`${circ * openFrac} ${circ}`}
-                        strokeDashoffset={circ * (0.25 + closedFrac)}
                         strokeLinecap="round"
                     />
-                    
+
                     {/* Center text */}
                     <text y="-5" textAnchor="middle" fontSize="16" fontWeight="600" fill="#111827">
                         {Math.round(openFrac * 100)}%
@@ -1193,32 +1188,32 @@ function Donut({ open = 0, closed = 0, labels = ["Open", "Closed"], colors = ["#
                         {labels[0]}
                     </text>
                 </g>
-                
+
                 {/* Legend */}
                 <g transform={`translate(${C + 80}, 30)`}>
                     {legendItems.map((item, i) => (
                         <g key={i} transform={`translate(0, ${i * 30})`}>
-                            <rect 
-                                x="0" 
-                                y="0" 
-                                width="12" 
-                                height="12" 
-                                rx="2" 
+                            <rect
+                                x="0"
+                                y="0"
+                                width="12"
+                                height="12"
+                                rx="2"
                                 fill={item.color}
                             />
-                            <text 
-                                x="20" 
-                                y="10" 
-                                fontSize="12" 
+                            <text
+                                x="20"
+                                y="10"
+                                fontSize="12"
                                 fill="#374151"
                                 fontWeight="500"
                             >
                                 {item.label}
                             </text>
-                            <text 
-                                x="20" 
-                                y="25" 
-                                fontSize="11" 
+                            <text
+                                x="20"
+                                y="25"
+                                fontSize="11"
                                 fill="#6b7280"
                             >
                                 {item.value} {item.value === 1 ? 'item' : 'items'}

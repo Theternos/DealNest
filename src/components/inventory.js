@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import "../styles/clients.css";
+import NavFrame from "./nav";
 
 export default function Inventory() {
     // data
@@ -184,278 +185,280 @@ export default function Inventory() {
     }
 
     return (
-        <div className="wrap">
-            <header className="bar">
-                <h1 className="title">Inventory</h1>
-            </header>
+        <NavFrame>
+            <div className="wrap">
+                <header className="bar">
+                    <h1 className="title">Inventory</h1>
+                </header>
 
-            {/* Filters */}
-            <div
-                className="toolbar inventory-toolbar"
-            >
-                <input
-                    className="input"
-                    placeholder="Search product…"
-                    value={search}
-                    onChange={(e) => {
-                        setPage(1);
-                        setSearch(e.target.value);
-                    }}
-                />
-
-                <select
-                    className="input"
-                    value={clientFilter}
-                    onChange={(e) => {
-                        setPage(1);
-                        setClientFilter(e.target.value);
-                    }}
+                {/* Filters */}
+                <div
+                    className="toolbar inventory-toolbar"
                 >
-                    <option value="ALL">Client Scope: All</option>
-                    <option value="GENERIC">Client Scope: Generic (Any client)</option>
-                    {clients.map((c) => (
-                        <option key={c.id} value={`SPECIFIC:${c.id}`}>
-                            Client Scope: {c.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
+                    <input
+                        className="input"
+                        placeholder="Search product…"
+                        value={search}
+                        onChange={(e) => {
+                            setPage(1);
+                            setSearch(e.target.value);
+                        }}
+                    />
 
-            {/* Table */}
-            <div className="card">
-                <div className="table-wrap">
-                    <table className="tbl">
-                        <thead>
-                            <tr>
-                                <th>Product</th>
-                                <th style={{ maxWidth: '100px' }}>Client Scope</th>
-                                <th className="right" style={{ maxWidth: '80px' }}>Qty Available</th>
-                                <th className="center" style={{ maxWidth: '80px' }}>Unit</th>
-                                <th className="right" style={{ maxWidth: '80px' }}>Avg Unit Cost</th>
-                                <th className="right" style={{ maxWidth: '80px' }}>Total Value</th>
-                                <th className="right" style={{ maxWidth: '80px' }}>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading && (
-                                <tr>
-                                    <td colSpan="7" className="muted center">
-                                        Loading…
-                                    </td>
-                                </tr>
-                            )}
-                            {!loading && rows.length === 0 && (
-                                <tr>
-                                    <td colSpan="7" className="muted center">
-                                        No inventory
-                                    </td>
-                                </tr>
-                            )}
-                            {!loading &&
-                                rows.map((r) => {
-                                    const avg =
-                                        Number(r.qty_available) > 0
-                                            ? Number(r.total_value) /
-                                            Number(r.qty_available)
-                                            : 0;
-                                    return (
-                                        <tr key={r.__key}>
-                                            <td className="truncate" data-th="Product">
-                                                {productName(r.product_id)}
-                                            </td>
-                                            <td data-th="Client Scope" style={{ maxWidth: '130px' }}>
-                                                <div className="truncate" style={{ maxWidth: '100%' }}>
-                                                    {r.client_id
-                                                        ? clientName(r.client_id)
-                                                        : "Any"}
-                                                </div>
-                                            </td>
-                                            <td className="right" data-th="Qty Available"  style={{ maxWidth: '100px' }}>
-                                                {Number(
-                                                    r.qty_available
-                                                ).toLocaleString("en-IN")}
-                                            </td>
-                                            <td data-th="Unit" style={{ maxWidth: '100px' }}>
-                                                {productUnit(r.product_id)}
-                                            </td>
-                                            <td className="right" data-th="Avg Unit Cost" style={{ maxWidth: '100px' }}>{inr(avg)}</td>
-                                            <td className="right" data-th="Total Value" style={{ maxWidth: '100px' }}>
-                                                {inr(r.total_value)}
-                                            </td>
-                                            <td className="right" data-th="Actions" style={{ maxWidth: '100px' }}>
-                                                <div className="actions">
-                                                    <button
-                                                        className="btn ghost"
-                                                        onClick={() => openView(r)}
-                                                    >
-                                                        View
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                        </tbody>
-                    </table>
+                    <select
+                        className="input"
+                        value={clientFilter}
+                        onChange={(e) => {
+                            setPage(1);
+                            setClientFilter(e.target.value);
+                        }}
+                    >
+                        <option value="ALL">Client Scope: All</option>
+                        <option value="GENERIC">Client Scope: Generic (Any client)</option>
+                        {clients.map((c) => (
+                            <option key={c.id} value={`SPECIFIC:${c.id}`}>
+                                Client Scope: {c.name}
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
-                <div className="pager">
-                    <div className="muted">
-                        {count} shown • Page {page} of {totalPages}
+                {/* Table */}
+                <div className="card">
+                    <div className="table-wrap">
+                        <table className="tbl">
+                            <thead>
+                                <tr>
+                                    <th>Product</th>
+                                    <th style={{ maxWidth: '100px' }}>Client Scope</th>
+                                    <th className="right" style={{ maxWidth: '80px' }}>Qty Available</th>
+                                    <th className="center" style={{ maxWidth: '80px' }}>Unit</th>
+                                    <th className="right" style={{ maxWidth: '80px' }}>Avg Unit Cost</th>
+                                    <th className="right" style={{ maxWidth: '80px' }}>Total Value</th>
+                                    <th className="right" style={{ maxWidth: '80px' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loading && (
+                                    <tr>
+                                        <td colSpan="7" className="muted center">
+                                            Loading…
+                                        </td>
+                                    </tr>
+                                )}
+                                {!loading && rows.length === 0 && (
+                                    <tr>
+                                        <td colSpan="7" className="muted center">
+                                            No inventory
+                                        </td>
+                                    </tr>
+                                )}
+                                {!loading &&
+                                    rows.map((r) => {
+                                        const avg =
+                                            Number(r.qty_available) > 0
+                                                ? Number(r.total_value) /
+                                                Number(r.qty_available)
+                                                : 0;
+                                        return (
+                                            <tr key={r.__key}>
+                                                <td className="truncate" data-th="Product">
+                                                    {productName(r.product_id)}
+                                                </td>
+                                                <td data-th="Client Scope" style={{ maxWidth: '130px' }}>
+                                                    <div className="truncate" style={{ maxWidth: '100%' }}>
+                                                        {r.client_id
+                                                            ? clientName(r.client_id)
+                                                            : "Any"}
+                                                    </div>
+                                                </td>
+                                                <td className="right" data-th="Qty Available" style={{ maxWidth: '100px' }}>
+                                                    {Number(
+                                                        r.qty_available
+                                                    ).toLocaleString("en-IN")}
+                                                </td>
+                                                <td data-th="Unit" style={{ maxWidth: '100px' }}>
+                                                    {productUnit(r.product_id)}
+                                                </td>
+                                                <td className="right" data-th="Avg Unit Cost" style={{ maxWidth: '100px' }}>{inr(avg)}</td>
+                                                <td className="right" data-th="Total Value" style={{ maxWidth: '100px' }}>
+                                                    {inr(r.total_value)}
+                                                </td>
+                                                <td className="right" data-th="Actions" style={{ maxWidth: '100px' }}>
+                                                    <div className="actions">
+                                                        <button
+                                                            className="btn ghost"
+                                                            onClick={() => openView(r)}
+                                                        >
+                                                            View
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                            </tbody>
+                        </table>
                     </div>
-                    <div className="pager-controls">
-                        <button
-                            className="btn"
-                            onClick={goPrev}
-                            disabled={page <= 1}
-                        >
-                            Prev
-                        </button>
-                        <button
-                            className="btn"
-                            onClick={goNext}
-                            disabled={page >= totalPages}
-                        >
-                            Next
-                        </button>
+
+                    <div className="pager">
+                        <div className="muted">
+                            {count} shown • Page {page} of {totalPages}
+                        </div>
+                        <div className="pager-controls">
+                            <button
+                                className="btn"
+                                onClick={goPrev}
+                                disabled={page <= 1}
+                            >
+                                Prev
+                            </button>
+                            <button
+                                className="btn"
+                                onClick={goNext}
+                                disabled={page >= totalPages}
+                            >
+                                Next
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* View Modal */}
-            {modalOpen && selected && (
-                <div className="modal">
-                    <div className="modal-card modal-card--lg">
-                        <div className="modal-head">
-                            <h2 className="modal-title">Inventory Details</h2>
-                            <button
-                                className="btn icon"
-                                onClick={() => setModalOpen(false)}
-                                aria-label="Close"
-                            >
-                                ×
-                            </button>
-                        </div>
-
-                        <div className="details-grid">
-                            <div className="details-col">
-                                <div className="detail-row">
-                                    <div className="detail-label">Product</div>
-                                    <div className="detail-value">
-                                        {productName(selected.product_id)}
-                                    </div>
-                                </div>
-                                <div className="detail-row">
-                                    <div className="detail-label">
-                                        Client Scope
-                                    </div>
-                                    <div className="detail-value">
-                                        {selected.client_id
-                                            ? clientName(selected.client_id)
-                                            : "Any"}
-                                    </div>
-                                </div>
-                                <div className="detail-row">
-                                    <div className="detail-label">Last In</div>
-                                    <div className="detail-value">
-                                        {selected.last_in_at
-                                            ? new Date(
-                                                selected.last_in_at
-                                            ).toLocaleString()
-                                            : "-"}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="details-col">
-                                <div className="detail-row">
-                                    <div className="detail-label">
-                                        Qty Available
-                                    </div>
-                                    <div className="detail-value">
-                                        {Number(
-                                            selected.qty_available
-                                        ).toLocaleString("en-IN")}
-                                    </div>
-                                </div>
-                                <div className="detail-row">
-                                    <div className="detail-label">
-                                        Avg Unit Cost
-                                    </div>
-                                    <div className="detail-value">
-                                        {inr(
-                                            Number(selected.qty_available) > 0
-                                                ? Number(
-                                                    selected.total_value
-                                                ) /
-                                                Number(
-                                                    selected.qty_available
-                                                )
-                                                : 0
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="detail-row">
-                                    <div className="detail-label">
-                                        Total Value
-                                    </div>
-                                    <div className="detail-value">
-                                        {inr(selected.total_value)}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="modal-actions between">
-                            <button
-                                className="btn width-100 margin-bottom"
-                                onClick={() => setModalOpen(false)}
-                            >
-                                Close
-                            </button>
-
-                            {/* Only show Remove Client if this group is exactly one row AND has a client */}
-                            {canRemoveClient && (
+                {/* View Modal */}
+                {modalOpen && selected && (
+                    <div className="modal">
+                        <div className="modal-card modal-card--lg">
+                            <div className="modal-head">
+                                <h2 className="modal-title">Inventory Details</h2>
                                 <button
-                                    className="btn danger width-100 margin-bottom"
-                                    onClick={() => setConfirmOpen(true)}
+                                    className="btn icon"
+                                    onClick={() => setModalOpen(false)}
+                                    aria-label="Close"
                                 >
-                                    Remove Client
+                                    ×
                                 </button>
-                            )}
-                        </div>
-                    </div>
+                            </div>
 
-                    {/* Confirm remove client */}
-                    {confirmOpen && (
-                        <div className="confirm">
-                            <div className="confirm-card">
-                                <div className="confirm-title">
-                                    Remove client from this stock?
+                            <div className="details-grid">
+                                <div className="details-col">
+                                    <div className="detail-row">
+                                        <div className="detail-label">Product</div>
+                                        <div className="detail-value">
+                                            {productName(selected.product_id)}
+                                        </div>
+                                    </div>
+                                    <div className="detail-row">
+                                        <div className="detail-label">
+                                            Client Scope
+                                        </div>
+                                        <div className="detail-value">
+                                            {selected.client_id
+                                                ? clientName(selected.client_id)
+                                                : "Any"}
+                                        </div>
+                                    </div>
+                                    <div className="detail-row">
+                                        <div className="detail-label">Last In</div>
+                                        <div className="detail-value">
+                                            {selected.last_in_at
+                                                ? new Date(
+                                                    selected.last_in_at
+                                                ).toLocaleString()
+                                                : "-"}
+                                        </div>
+                                    </div>
                                 </div>
-                                <p className="confirm-text">
-                                    This will convert this customized stock to{" "}
-                                    <b>generic</b> (usable for any client).
-                                    Continue?
-                                </p>
-                                <div className="confirm-actions">
+                                <div className="details-col">
+                                    <div className="detail-row">
+                                        <div className="detail-label">
+                                            Qty Available
+                                        </div>
+                                        <div className="detail-value">
+                                            {Number(
+                                                selected.qty_available
+                                            ).toLocaleString("en-IN")}
+                                        </div>
+                                    </div>
+                                    <div className="detail-row">
+                                        <div className="detail-label">
+                                            Avg Unit Cost
+                                        </div>
+                                        <div className="detail-value">
+                                            {inr(
+                                                Number(selected.qty_available) > 0
+                                                    ? Number(
+                                                        selected.total_value
+                                                    ) /
+                                                    Number(
+                                                        selected.qty_available
+                                                    )
+                                                    : 0
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="detail-row">
+                                        <div className="detail-label">
+                                            Total Value
+                                        </div>
+                                        <div className="detail-value">
+                                            {inr(selected.total_value)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="modal-actions between">
+                                <button
+                                    className="btn width-100 margin-bottom"
+                                    onClick={() => setModalOpen(false)}
+                                >
+                                    Close
+                                </button>
+
+                                {/* Only show Remove Client if this group is exactly one row AND has a client */}
+                                {canRemoveClient && (
                                     <button
-                                        className="btn modal-btn"
-                                        onClick={() => setConfirmOpen(false)}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        className="btn modal-btn danger"
-                                        onClick={confirmRemoveClient}
+                                        className="btn danger width-100 margin-bottom"
+                                        onClick={() => setConfirmOpen(true)}
                                     >
                                         Remove Client
                                     </button>
-                                </div>
+                                )}
                             </div>
                         </div>
-                    )}
-                </div>
-            )}
-        </div>
+
+                        {/* Confirm remove client */}
+                        {confirmOpen && (
+                            <div className="confirm">
+                                <div className="confirm-card">
+                                    <div className="confirm-title">
+                                        Remove client from this stock?
+                                    </div>
+                                    <p className="confirm-text">
+                                        This will convert this customized stock to{" "}
+                                        <b>generic</b> (usable for any client).
+                                        Continue?
+                                    </p>
+                                    <div className="confirm-actions">
+                                        <button
+                                            className="btn modal-btn"
+                                            onClick={() => setConfirmOpen(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            className="btn modal-btn danger"
+                                            onClick={confirmRemoveClient}
+                                        >
+                                            Remove Client
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </NavFrame>
     );
 }

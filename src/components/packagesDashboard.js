@@ -110,21 +110,21 @@ const PARTNERS = ["Kavin", "Vicky"];
 
 /** Enhanced product name parsing **/
 function parseNameMeta(name = "") {
-  const out = { 
-    side: "Unknown", 
-    colour: "Unknown", 
-    size: "Unknown", 
+  const out = {
+    side: "Unknown",
+    colour: "Unknown",
+    size: "Unknown",
     base: "",
     type: "",
     dimensions: "",
     area: 0
   };
-  
+
   const lower = name.toLowerCase();
-  
+
   // Base type
   out.base = lower.includes("parcel") ? "Parcel" : "Cover";
-  
+
   // Side detection
   if (lower.includes("non-printed")) {
     out.side = "Non-Printed";
@@ -134,13 +134,13 @@ function parseNameMeta(name = "") {
     if (lower.includes("double side")) out.side = "Double";
     else if (lower.includes("single side")) out.side = "Single";
     else out.side = "Unknown";
-    
+
     // Colour detection
     if (lower.includes("tri colour") || lower.includes("tri color")) out.colour = "Tri";
     else if (lower.includes("double colour") || lower.includes("double color")) out.colour = "Double";
     else if (lower.includes("single colour") || lower.includes("single color")) out.colour = "Single";
     else if (out.side === "Unknown") out.colour = "Unknown";
-    
+
     out.type = `${out.side} | ${out.colour}`;
   }
 
@@ -153,7 +153,7 @@ function parseNameMeta(name = "") {
     out.size = out.dimensions;
     out.area = width * height; // Calculate area for insights
   }
-  
+
   return out;
 }
 
@@ -163,7 +163,7 @@ function calculateEfficiencyMetrics(salesData, purchasesData) {
   const totalCost = sum(purchasesData.map(p => p.cost || 0));
   const totalProfit = totalRevenue - totalCost;
   const roi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
-  
+
   return {
     roi,
     efficiency: Math.min(100, Math.max(0, (totalRevenue / (totalCost || 1)) * 100)),
@@ -212,7 +212,7 @@ export default function PackagesDashboard() {
   const [sizeVendorMix, setSizeVendorMix] = useState([]);
   const [clientsList, setClientsList] = useState([]);
   const [investSplit, setInvestSplit] = useState([]);
-  
+
   // New enhanced data
   const [productPerformance, setProductPerformance] = useState([]);
   const [seasonalTrend, setSeasonalTrend] = useState([]);
@@ -399,7 +399,7 @@ export default function PackagesDashboard() {
 
         // Efficiency metrics
         const efficiencyMetrics = calculateEfficiencyMetrics(
-          sItems.map(i => ({ 
+          sItems.map(i => ({
             revenue: +i.quantity * +i.unit_price,
             cost: +i.quantity * (prodCostMap.get(i.product_id) ?? +i.unit_price ?? 0)
           })),
@@ -414,8 +414,8 @@ export default function PackagesDashboard() {
           const r = +i.quantity * +i.unit_price;
           const c = +i.quantity * (prodCostMap.get(i.product_id) ?? +i.unit_price ?? 0);
           const prev = byDay.get(key) || { revenue: 0, cost: 0, profit: 0, orders: 0 };
-          prev.revenue += r; 
-          prev.cost += c; 
+          prev.revenue += r;
+          prev.cost += c;
           prev.profit += (r - c);
           prev.orders += 1;
           byDay.set(key, prev);
@@ -431,7 +431,7 @@ export default function PackagesDashboard() {
         const sideMap = new Map();
         const clientQty = new Map();
         const productPerf = new Map();
-        
+
         sItems.forEach((i) => {
           const m = metaByProd.get(i.product_id) || {};
           const t = `${m.side || "Unknown"} | ${m.colour || "Unknown"}`;
@@ -441,20 +441,20 @@ export default function PackagesDashboard() {
 
           // Type breakdown
           typeMap.set(t, (typeMap.get(t) || 0) + (+i.quantity || 0));
-          
+
           // Size breakdown
           sizeMap.set(m.size || "Unknown", (sizeMap.get(m.size || "Unknown") || 0) + (+i.quantity || 0));
-          
+
           // Colour breakdown
           colourMap.set(m.colour || "Unknown", (colourMap.get(m.colour || "Unknown") || 0) + (+i.quantity || 0));
-          
+
           // Side breakdown
           sideMap.set(m.side || "Unknown", (sideMap.get(m.side || "Unknown") || 0) + (+i.quantity || 0));
-          
+
           // Client breakdown
           const cName = clientsMap.get(sales.find((s) => s.id === i.sale_id)?.client_id) || "(Unknown)";
           clientQty.set(cName, (clientQty.get(cName) || 0) + (+i.quantity || 0));
-          
+
           // Product performance
           const prodName = idToProd.get(i.product_id)?.name || "Unknown";
           const current = productPerf.get(prodName) || { qty: 0, revenue: 0, cost: 0, profit: 0 };
@@ -470,8 +470,8 @@ export default function PackagesDashboard() {
         const colourPerfArr = Array.from(colourMap.entries()).map(([colour, qty]) => ({ colour, qty })).sort((a, b) => b.qty - a.qty);
         const sidePerfArr = Array.from(sideMap.entries()).map(([side, qty]) => ({ side, qty })).sort((a, b) => b.qty - a.qty);
         const topClientsArr = Array.from(clientQty.entries()).map(([client, qty]) => ({ client, qty })).sort((a, b) => b.qty - a.qty).slice(0, 10);
-        const productPerfArr = Array.from(productPerf.entries()).map(([product, data]) => ({ 
-          product, 
+        const productPerfArr = Array.from(productPerf.entries()).map(([product, data]) => ({
+          product,
           ...data,
           margin: data.revenue > 0 ? (data.profit / data.revenue) * 100 : 0
         })).sort((a, b) => b.profit - a.profit).slice(0, 15);
@@ -563,7 +563,7 @@ export default function PackagesDashboard() {
           .map(([month, data]) => ({ month, ...data }));
 
         if (!active) return;
-        
+
         setMetrics({
           orders,
           qtyKg,
@@ -581,7 +581,7 @@ export default function PackagesDashboard() {
           investTotal,
           ...efficiencyMetrics
         });
-        
+
         setTrend(trendArr);
         setTypeQty(typeQtyArr);
         setSizeQty(sizeQtyArr);
@@ -629,11 +629,8 @@ export default function PackagesDashboard() {
   }, [metrics.profit]);
 
   return (
-    <div className="wrap">
-      <div className="bar">
-        <div className="title">📦 Packages — Business Intelligence</div>
-      </div>
 
+    <div className="wrap">
       {/* Enhanced Toolbar */}
       <div className="ledger-toolbar card" style={{ padding: 12, marginBottom: 12 }}>
         <div className="ledger-toolbar__left">
@@ -651,7 +648,7 @@ export default function PackagesDashboard() {
             </>
           )}
         </div>
-       
+
       </div>
 
       {error && (
@@ -806,6 +803,7 @@ export default function PackagesDashboard() {
         .trend-neutral { background:#F3F4F6; color:#6B7280; }
       `}</style>
     </div>
+
   );
 }
 
@@ -824,68 +822,68 @@ function EnhancedKPIGrid({ metrics, partnerSplit, investSplit }) {
         <div className="big">{metrics.orders || 0}</div>
         <div className="sub">Count {getTrendIndicator(metrics.orders)}</div>
       </div>
-      
+
       <div className="kpi">
         <h4>⚖️ Total Quantity</h4>
         <div className="big">{fmtQty(metrics.qtyKg)}</div>
         <div className="sub">Kg {getTrendIndicator(metrics.qtyKg)}</div>
       </div>
-      
+
       <div className="kpi">
         <h4>💰 Revenue</h4>
         <div className="big ok">{fmtINR(metrics.revenue)}</div>
         <div className="sub">Total Sales {getTrendIndicator(metrics.revenue)}</div>
       </div>
-      
+
       <div className="kpi">
         <h4>💸 Cost</h4>
         <div className="big danger">{fmtINR(metrics.cost)}</div>
         <div className="sub">Total Cost {getTrendIndicator(metrics.cost, false)}</div>
       </div>
-      
+
       <div className="kpi">
         <h4>📈 Net Profit</h4>
         <div className="big ok">{fmtINR(metrics.profit)}</div>
         <div className="sub">{metrics.profitMargin?.toFixed(1)}% Margin {getTrendIndicator(metrics.profit)}</div>
       </div>
-      
+
       <div className="kpi">
         <h4>📊 Avg Price/Kg</h4>
         <div className="big">{`${fmtINR(metrics.avgSell)} | ${fmtINR(metrics.avgCost)}`}</div>
         <div className="sub">Sell | Cost | {metrics.avgMarginPct?.toFixed(1)}%</div>
       </div>
-      
+
       <div className="kpi">
         <h4>⏳ Receivables</h4>
         <div className="big warning">{fmtINR(metrics.receivables)}</div>
         <div className="sub">Outstanding Credit</div>
       </div>
-      
+
       <div className="kpi">
         <h4>📋 Purchase Status</h4>
         <div className="pill pill--out">Open: {metrics.openPurchases || 0}</div>
         <div className="pill pill--in" style={{ marginLeft: 8 }}>Closed: {metrics.closedPurchases || 0}</div>
         <div className="sub" style={{ marginTop: 6 }}>Purchase Orders</div>
       </div>
-      
+
       <div className="kpi">
         <h4>🧾 Vendor Payments</h4>
         <div className="big">{`${fmtINR(metrics.purchasePaid)} | ${fmtINR(metrics.purchaseUnpaid)}`}</div>
         <div className="sub">Paid | Due</div>
       </div>
-      
+
       <div className="kpi">
         <h4>🤝 Profit Split</h4>
         <div className="pill">Kavin: <b>{fmtINR(partnerSplit[0]?.amount || 0)}</b></div>
         <div className="pill" style={{ marginLeft: 8 }}>Vicky: <b>{fmtINR(partnerSplit[1]?.amount || 0)}</b></div>
       </div>
-      
+
       <div className="kpi">
         <h4>💼 Total Investment</h4>
         <div className="big">{fmtINR(metrics.investTotal)}</div>
         <div className="sub">Capital Invested</div>
       </div>
-      
+
       <div className="kpi">
         <h4>💼 Investment Split</h4>
         <div className="sub">
@@ -907,7 +905,7 @@ function ComboChart({ data }) {
   const orders = data.map(d => d.orders || 0);
   const maxRevenue = Math.max(1, ...revenues);
   const maxOrders = Math.max(1, ...orders);
-  
+
   const scaleX = (i) => P + (i * (W - 2 * P)) / Math.max(1, data.length - 1);
   const scaleYRevenue = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxRevenue || 1);
   const scaleYOrders = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxOrders || 1);
@@ -924,15 +922,15 @@ function ComboChart({ data }) {
     <svg viewBox={`0 0 ${W} ${H}`} className="chart">
       <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" />
       <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" />
-      
+
       {/* Order Bars */}
       {orderBars.map((bar, i) => (
         <rect key={i} x={bar.x} y={bar.y} width={bar.w} height={bar.h} className="combo-bar" />
       ))}
-      
+
       {/* Revenue Line */}
       <path d={revenuePath} className="combo-line" />
-      
+
       <g>
         <circle cx={P + 6} cy={P - 10} r={4} fill="#2563eb" />
         <text x={P + 14} y={P - 6} fontSize="12">Revenue</text>
@@ -948,10 +946,10 @@ function ProfitMarginChart({ data }) {
   const W = 760, H = 260, P = 30;
   const profits = data.map(d => d.profit || 0);
   const margins = data.map(d => d.revenue ? ((d.profit || 0) / d.revenue) * 100 : 0);
-  
+
   const maxProfit = Math.max(1, ...profits);
   const maxMargin = Math.max(1, ...margins);
-  
+
   const scaleX = (i) => P + (i * (W - 2 * P)) / Math.max(1, data.length - 1);
   const scaleYProfit = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxProfit || 1);
   const scaleYMargin = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxMargin || 1);
@@ -964,7 +962,7 @@ function ProfitMarginChart({ data }) {
       <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" />
       <path d={profitPath} className="profit-line" />
       <path d={marginPath} className="margin-line" />
-      
+
       <g>
         <circle cx={P + 6} cy={P - 10} r={4} fill="#10B981" />
         <text x={P + 14} y={P - 6} fontSize="12">Profit (₹)</text>
@@ -982,7 +980,7 @@ function ProductPerformanceChart({ data }) {
   const n = Math.min(8, data.length);
   const gap = 12;
   const barW = Math.max(15, (W - 2 * P) / n - gap);
-  
+
   const scaleX = (i) => P + i * (barW + gap);
   const scaleY = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxProfit || 1);
 
@@ -996,7 +994,7 @@ function ProductPerformanceChart({ data }) {
       {/* X and Y axis */}
       <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
       <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-      
+
       {/* Y-axis labels and grid lines */}
       {yAxisLabels.map((value, i) => {
         const y = scaleY(value);
@@ -1009,7 +1007,7 @@ function ProductPerformanceChart({ data }) {
           </React.Fragment>
         );
       })}
-      
+
       {/* Bars with labels */}
       {data.slice(0, n).map((d, i) => {
         const x = scaleX(i);
@@ -1017,37 +1015,37 @@ function ProductPerformanceChart({ data }) {
         const h = H - P - y;
         const color = d.profit > 0 ? "#10B981" : "#EF4444";
         const label = d.product ? String(d.product).substring(0, 10) : ''; // Truncate long names
-        
+
         return (
           <g key={i}>
-            <rect 
-              x={x} 
-              y={y} 
-              width={barW} 
-              height={h} 
+            <rect
+              x={x}
+              y={y}
+              width={barW}
+              height={h}
               fill={color}
               rx="2"
               ry="2"
             />
             {/* X-axis labels */}
-            <text 
-              x={x + barW/2} 
-              y={H - P/2} 
-              textAnchor="middle" 
-              fontSize="11" 
+            <text
+              x={x + barW / 2}
+              y={H - P / 2}
+              textAnchor="middle"
+              fontSize="11"
               fill="#666"
-              transform={`rotate(-45, ${x + barW/2}, ${H - P/2})`}
+              transform={`rotate(-45, ${x + barW / 2}, ${H - P / 2})`}
               style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}
             >
               {label}
             </text>
             {/* Value labels on top of bars */}
             {h > 20 && (
-              <text 
-                x={x + barW/2} 
-                y={y - 5} 
-                textAnchor="middle" 
-                fontSize="10" 
+              <text
+                x={x + barW / 2}
+                y={y - 5}
+                textAnchor="middle"
+                fontSize="10"
                 fontWeight="500"
                 fill="#444"
               >
@@ -1057,9 +1055,9 @@ function ProductPerformanceChart({ data }) {
           </g>
         );
       })}
-      
+
       {/* Title */}
-      <text x={W/2} y={20} textAnchor="middle" fontSize="14" fontWeight="600" fill="#333">
+      <text x={W / 2} y={20} textAnchor="middle" fontSize="14" fontWeight="600" fill="#333">
         Profit by Product (Top {n})
       </text>
     </svg>
@@ -1074,7 +1072,7 @@ function SizeEfficiencyChart({ data }) {
   const n = Math.min(10, data.length);
   const gap = 12;
   const barW = Math.max(15, (W - 2 * P) / n - gap);
-  
+
   const scaleX = (i) => P + i * (barW + gap);
   const scaleY = (v) => H - P - ((v || 0) * (H - 2 * P)) / (maxEff || 1);
 
@@ -1084,11 +1082,11 @@ function SizeEfficiencyChart({ data }) {
   const yAxisLabels = Array.from({ length: yTicks }, (_, i) => (i * yStep).toFixed(1));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart" style={{ width: '100%', height: "100%"}}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="chart" style={{ width: '100%', height: "100%" }}>
       {/* X and Y axis */}
       <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
       <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-      
+
       {/* Y-axis labels and grid lines */}
       {yAxisLabels.map((value, i) => {
         const y = scaleY(parseFloat(value));
@@ -1101,7 +1099,7 @@ function SizeEfficiencyChart({ data }) {
           </React.Fragment>
         );
       })}
-      
+
       {/* Bars with labels */}
       {data.slice(0, n).map((d, i) => {
         const x = scaleX(i);
@@ -1110,37 +1108,37 @@ function SizeEfficiencyChart({ data }) {
         const color = d.efficiency > 0 ? "#8b5cf6" : "#6B7280";
         const label = d.size || 'N/A';
         const value = (d.efficiency || 0).toFixed(1);
-        
+
         return (
           <g key={i}>
-            <rect 
-              x={x} 
-              y={y} 
-              width={barW} 
-              height={h} 
+            <rect
+              x={x}
+              y={y}
+              width={barW}
+              height={h}
               fill={color}
               rx="2"
               ry="2"
             />
             {/* X-axis labels */}
-            <text 
-              x={x + barW/2} 
-              y={H - P/2} 
-              textAnchor="middle" 
-              fontSize="11" 
+            <text
+              x={x + barW / 2}
+              y={H - P / 2}
+              textAnchor="middle"
+              fontSize="11"
               fill="#666"
-              transform={`rotate(-45, ${x + barW/2}, ${H - P/2})`}
+              transform={`rotate(-45, ${x + barW / 2}, ${H - P / 2})`}
               style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}
             >
               {label}
             </text>
             {/* Value labels on top of bars */}
             {h > 20 && (
-              <text 
-                x={x + barW/2} 
-                y={y - 5} 
-                textAnchor="middle" 
-                fontSize="10" 
+              <text
+                x={x + barW / 2}
+                y={y - 5}
+                textAnchor="middle"
+                fontSize="10"
                 fontWeight="500"
                 fill="#444"
               >
@@ -1150,16 +1148,16 @@ function SizeEfficiencyChart({ data }) {
           </g>
         );
       })}
-      
+
       {/* Title and Y-axis label */}
-      <text x={W/2} y={20} textAnchor="middle" fontSize="14" fontWeight="600" fill="#333">
+      <text x={W / 2} y={20} textAnchor="middle" fontSize="14" fontWeight="600" fill="#333">
         Profit per Square Foot by Size
       </text>
-      <text 
-        x={-H/2} 
-        y={10} 
-        textAnchor="middle" 
-        fontSize="12" 
+      <text
+        x={-H / 2}
+        y={10}
+        textAnchor="middle"
+        fontSize="12"
         fill="#666"
         transform="rotate(-90, 10, 10)"
       >
@@ -1178,12 +1176,12 @@ function SupplierChart({ data }) {
 function ColourChart({ data }) {
   const colorMap = {
     "Single": "#3B82F6",
-    "Double": "#8B5CF6", 
+    "Double": "#8B5CF6",
     "Tri": "#EC4899",
     "None": "#6B7280",
     "Unknown": "#9CA3AF"
   };
-  
+
   return <BarChart data={data} xKey="colour" yKey="qty" colorMap={colorMap} />;
 }
 
@@ -1195,7 +1193,7 @@ function SideChart({ data }) {
     "Non-Printed": "#6B7280",
     "Unknown": "#9CA3AF"
   };
-  
+
   return <BarChart data={data} xKey="side" yKey="qty" colorMap={colorMap} />;
 }
 
@@ -1231,7 +1229,7 @@ function BarChart({ data, xKey, yKey, colorMap = {} }) {
       {/* X and Y axis */}
       <line x1={P} x2={W - P} y1={H - P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
       <line x1={P} x2={P} y1={P} y2={H - P} className="gridline" stroke="#e0e0e0" strokeWidth="1" />
-      
+
       {/* Y-axis labels and grid lines */}
       {yAxisLabels.map((value, i) => {
         const y = scaleY(value);
@@ -1244,7 +1242,7 @@ function BarChart({ data, xKey, yKey, colorMap = {} }) {
           </React.Fragment>
         );
       })}
-      
+
       {/* Bars */}
       {data.map((d, i) => {
         const x = scaleX(i);
@@ -1253,35 +1251,35 @@ function BarChart({ data, xKey, yKey, colorMap = {} }) {
         const label = String(d[xKey]).substring(0, 10); // Truncate long labels
         return (
           <g key={i}>
-            <rect 
-              x={x} 
-              y={y} 
-              width={barW} 
-              height={h} 
-              fill={getColor(d[xKey])} 
+            <rect
+              x={x}
+              y={y}
+              width={barW}
+              height={h}
+              fill={getColor(d[xKey])}
               className="bar"
               rx="2"
               ry="2"
             />
             {/* X-axis labels */}
-            <text 
-              x={x + barW/2} 
-              y={H - P/2} 
-              textAnchor="middle" 
-              fontSize="12" 
+            <text
+              x={x + barW / 2}
+              y={H - P / 2}
+              textAnchor="middle"
+              fontSize="12"
               fill="#666"
-              transform={`rotate(-45, ${x + barW/2}, ${H - P/2})`}
+              transform={`rotate(-45, ${x + barW / 2}, ${H - P / 2})`}
               style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}
             >
               {label}
             </text>
             {/* Value labels on top of bars */}
             {h > 20 && (
-              <text 
-                x={x + barW/2} 
-                y={y - 5} 
-                textAnchor="middle" 
-                fontSize="10" 
+              <text
+                x={x + barW / 2}
+                y={y - 5}
+                textAnchor="middle"
+                fontSize="10"
                 fontWeight="500"
                 fill="#444"
               >

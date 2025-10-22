@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import "../styles/clients.css";
+import NavFrame from "./nav";
 
 /** ---------- IST (Asia/Kolkata) helpers ---------- **/
 const IST_TZ = "Asia/Kolkata";
@@ -245,197 +246,199 @@ export default function Investments() {
     });
 
     return (
-        <div className="wrap">
-            <div className="bar">
-                <div className="title">Investments</div>
-                <button className="btn primary modal-btn" onClick={openCreate}>
-                    Record Investment
-                </button>
-            </div>
-            {/* Summary Cards */}
-            <div className="grid" style={{ marginBottom: '16px' }}>
-                <div className="card" style={{ padding: '16px' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '8px' }}>Total Investments</div>
-                    <div style={{ fontSize: '24px', fontWeight: '700' }}>{formatCurrency(total)}</div>
+        <NavFrame>
+            <div className="wrap">
+                <div className="bar">
+                    <div className="title">Investments</div>
+                    <button className="btn primary modal-btn" onClick={openCreate}>
+                        Record Investment
+                    </button>
                 </div>
-                <div className="card" style={{ padding: '16px' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '8px' }}>Kavin's Share</div>
-                    <div style={{ fontSize: '20px', fontWeight: '600' }}>{formatCurrency(kavinShare)}</div>
+                {/* Summary Cards */}
+                <div className="grid" style={{ marginBottom: '16px' }}>
+                    <div className="card" style={{ padding: '16px' }}>
+                        <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '8px' }}>Total Investments</div>
+                        <div style={{ fontSize: '24px', fontWeight: '700' }}>{formatCurrency(total)}</div>
+                    </div>
+                    <div className="card" style={{ padding: '16px' }}>
+                        <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '8px' }}>Kavin's Share</div>
+                        <div style={{ fontSize: '20px', fontWeight: '600' }}>{formatCurrency(kavinShare)}</div>
+                    </div>
+                    <div className="card" style={{ padding: '16px' }}>
+                        <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '8px' }}>Vicky's Share</div>
+                        <div style={{ fontSize: '20px', fontWeight: '600' }}>{formatCurrency(vickyShare)}</div>
+                    </div>
                 </div>
-                <div className="card" style={{ padding: '16px' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--muted)', marginBottom: '8px' }}>Vicky's Share</div>
-                    <div style={{ fontSize: '20px', fontWeight: '600' }}>{formatCurrency(vickyShare)}</div>
-                </div>
-            </div>
-            <div className="card">
-                <div className="table-wrap">
-                    <table className="tbl">
-                        <thead>
-                            <tr>
-                                <th>Date &amp; Time (IST)</th>
-                                <th>Name</th>
-                                <th className="right">Amount (₹)</th>
-                                <th className="right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
+                <div className="card">
+                    <div className="table-wrap">
+                        <table className="tbl">
+                            <thead>
                                 <tr>
-                                    <td data-th="Loading" colSpan={5} className="center">
-                                        Loading…
-                                    </td>
+                                    <th>Date &amp; Time (IST)</th>
+                                    <th>Name</th>
+                                    <th className="right">Amount (₹)</th>
+                                    <th className="right">Actions</th>
                                 </tr>
-                            ) : rows.length === 0 ? (
-                                <tr>
-                                    <td data-th="Empty" colSpan={5} className="center muted">
-                                        No investments recorded yet.
-                                    </td>
-                                </tr>
-                            ) : (
-                                rows.map((r) => (
-                                    <tr key={r.id}>
-                                        <td data-th="Date & Time">{formatIST(r.created_at)}</td>
-                                        <td data-th="Name">{r.name || "-"}</td>
-                                        <td data-th="Amount" className="right">
-                                            {currency.format(Number(r.amount || 0))}
-                                        </td>
-                                        <td data-th="Actions" className="center">
-                                            <div className="actions">
-                                                <button
-                                                    className="btn danger"
-                                                    onClick={() => openConfirmDelete(r)}
-                                                    title="Delete investment"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </div>
+                            </thead>
+                            <tbody>
+                                {loading ? (
+                                    <tr>
+                                        <td data-th="Loading" colSpan={5} className="center">
+                                            Loading…
                                         </td>
                                     </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="pager">
-                    <div className="muted">
-                        {count} total • Page {page} / {totalPages}
+                                ) : rows.length === 0 ? (
+                                    <tr>
+                                        <td data-th="Empty" colSpan={5} className="center muted">
+                                            No investments recorded yet.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    rows.map((r) => (
+                                        <tr key={r.id}>
+                                            <td data-th="Date & Time">{formatIST(r.created_at)}</td>
+                                            <td data-th="Name">{r.name || "-"}</td>
+                                            <td data-th="Amount" className="right">
+                                                {currency.format(Number(r.amount || 0))}
+                                            </td>
+                                            <td data-th="Actions" className="center">
+                                                <div className="actions">
+                                                    <button
+                                                        className="btn danger"
+                                                        onClick={() => openConfirmDelete(r)}
+                                                        title="Delete investment"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
-                    <div className="pager-controls">
-                        <button
-                            className="btn"
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            disabled={page <= 1 || loading}
-                        >
-                            ‹ Prev
-                        </button>
-                        <button
-                            className="btn"
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            disabled={page >= totalPages || loading}
-                        >
-                            Next ›
-                        </button>
-                    </div>
-                </div>
-            </div>
 
-            {/* Create / Record Investment Modal */}
-            {modalOpen && (
-                <div className="modal" role="dialog" aria-modal="true">
-                    <div className="modal-card">
-                        <div className="modal-head">
-                            <div className="modal-title">Record Investment</div>
-                            <button className="btn icon" onClick={closeCreate} aria-label="Close">
-                                ✕
-                            </button>
+                    <div className="pager">
+                        <div className="muted">
+                            {count} total • Page {page} / {totalPages}
                         </div>
-
-                        <form className="form" onSubmit={handleSave}>
-                            <div className="grid">
-                                <label className="lbl">
-                                    <span className="lbl-text">Name</span>
-                                    <select
-                                        className="input"
-                                        value={form.name}
-                                        onChange={(e) =>
-                                            setForm((f) => ({ ...f, name: e.target.value }))
-                                        }
-                                    >
-                                        {PEOPLE.map((p) => (
-                                            <option key={p} value={p}>
-                                                {p}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-
-                                <label className="lbl">
-                                    <span className="lbl-text">Amount (₹)</span>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        className="input"
-                                        placeholder="0.00"
-                                        value={form.amount}
-                                        onChange={(e) =>
-                                            setForm((f) => ({ ...f, amount: e.target.value }))
-                                        }
-                                    />
-                                </label>
-
-                                <label className="lbl span-2">
-                                    <span className="lbl-text">Timestamp (IST)</span>
-                                    <input
-                                        type="datetime-local"
-                                        className="input"
-                                        value={form.created_at_local}
-                                        onChange={(e) =>
-                                            setForm((f) => ({ ...f, created_at_local: e.target.value }))
-                                        }
-                                    />
-                                </label>
-                            </div>
-
-                            <div className="modal-actions margin-bottom">
-                                <button type="button" className="btn modal-btn ghost" onClick={closeCreate}>
-                                    Cancel
-                                </button>
-                                <button type="submit" className="btn modal-btn primary" disabled={saving}>
-                                    {saving ? "Saving…" : "Save"}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Delete confirm */}
-            {confirmOpen && (
-                <div className="confirm" role="dialog" aria-modal="true">
-                    <div className="confirm-card">
-                        <div className="confirm-title">Delete investment?</div>
-                        <div className="confirm-text">
-                            This action cannot be undone. Proceed to delete{" "}
-                            <b>#{toDelete?.id}</b> ({toDelete?.name},{" "}
-                            {currency.format(Number(toDelete?.amount || 0))})?
-                        </div>
-                        <div className="confirm-actions">
-                            <button className="btn modal-btn" onClick={closeConfirm} disabled={deleting}>
-                                Cancel
+                        <div className="pager-controls">
+                            <button
+                                className="btn"
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                disabled={page <= 1 || loading}
+                            >
+                                ‹ Prev
                             </button>
                             <button
-                                className="btn modal-btn danger"
-                                onClick={handleDelete}
-                                disabled={deleting}
+                                className="btn"
+                                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={page >= totalPages || loading}
                             >
-                                {deleting ? "Deleting…" : "Delete"}
+                                Next ›
                             </button>
                         </div>
                     </div>
                 </div>
-            )}
-        </div>
+
+                {/* Create / Record Investment Modal */}
+                {modalOpen && (
+                    <div className="modal" role="dialog" aria-modal="true">
+                        <div className="modal-card">
+                            <div className="modal-head">
+                                <div className="modal-title">Record Investment</div>
+                                <button className="btn icon" onClick={closeCreate} aria-label="Close">
+                                    ✕
+                                </button>
+                            </div>
+
+                            <form className="form" onSubmit={handleSave}>
+                                <div className="grid">
+                                    <label className="lbl">
+                                        <span className="lbl-text">Name</span>
+                                        <select
+                                            className="input"
+                                            value={form.name}
+                                            onChange={(e) =>
+                                                setForm((f) => ({ ...f, name: e.target.value }))
+                                            }
+                                        >
+                                            {PEOPLE.map((p) => (
+                                                <option key={p} value={p}>
+                                                    {p}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="lbl">
+                                        <span className="lbl-text">Amount (₹)</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            className="input"
+                                            placeholder="0.00"
+                                            value={form.amount}
+                                            onChange={(e) =>
+                                                setForm((f) => ({ ...f, amount: e.target.value }))
+                                            }
+                                        />
+                                    </label>
+
+                                    <label className="lbl span-2">
+                                        <span className="lbl-text">Timestamp (IST)</span>
+                                        <input
+                                            type="datetime-local"
+                                            className="input"
+                                            value={form.created_at_local}
+                                            onChange={(e) =>
+                                                setForm((f) => ({ ...f, created_at_local: e.target.value }))
+                                            }
+                                        />
+                                    </label>
+                                </div>
+
+                                <div className="modal-actions margin-bottom">
+                                    <button type="button" className="btn modal-btn ghost" onClick={closeCreate}>
+                                        Cancel
+                                    </button>
+                                    <button type="submit" className="btn modal-btn primary" disabled={saving}>
+                                        {saving ? "Saving…" : "Save"}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Delete confirm */}
+                {confirmOpen && (
+                    <div className="confirm" role="dialog" aria-modal="true">
+                        <div className="confirm-card">
+                            <div className="confirm-title">Delete investment?</div>
+                            <div className="confirm-text">
+                                This action cannot be undone. Proceed to delete{" "}
+                                <b>#{toDelete?.id}</b> ({toDelete?.name},{" "}
+                                {currency.format(Number(toDelete?.amount || 0))})?
+                            </div>
+                            <div className="confirm-actions">
+                                <button className="btn modal-btn" onClick={closeConfirm} disabled={deleting}>
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn modal-btn danger"
+                                    onClick={handleDelete}
+                                    disabled={deleting}
+                                >
+                                    {deleting ? "Deleting…" : "Delete"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </NavFrame>
     );
 }

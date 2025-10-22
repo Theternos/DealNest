@@ -3,9 +3,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { createPortal } from "react-dom";
 import "../styles/clients.css";
+import NavFrame from "./nav";
 
 const TAX_OPTIONS = ["Tax Exemption", "5%", "2.5%", "12%", "18%"];
 const MOP_OPTIONS = ["Cash", "Bank Transfer", "UPI"];
+
 // --- IST time helpers ---
 const IST_TIMEZONE = "Asia/Kolkata";
 
@@ -58,8 +60,22 @@ const EMPTY_LINE = {
 const DELIVERED_OPTIONS = ["Any", "All Delivered", "Any Undelivered"];
 const STATUS_OPTIONS = ["Any", "Open", "Closed"];
 
+/** ========= NEW: page view tabs ========= **/
+const VIEW_TABS = {
+  HISTORY: "HISTORY",
+  DEMAND: "DEMAND",
+};
+
 export default function Purchases() {
-  // list + pagination
+  /** ========== Tab state ========== */
+  const [view, setView] = useState(
+    localStorage.getItem("purchases.view") || VIEW_TABS.HISTORY
+  );
+  useEffect(() => {
+    localStorage.setItem("purchases.view", view);
+  }, [view]);
+
+  // list + pagination (history tab)
   const [rows, setRows] = useState([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -80,13 +96,13 @@ export default function Purchases() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
 
-  // filters
+  // filters (history tab)
   const [filterStatus, setFilterStatus] = useState("Any");
   const [filterVendorId, setFilterVendorId] = useState("");
   const [filterClientId, setFilterClientId] = useState("");
   const [filterDelivered, setFilterDelivered] = useState("Any"); // Any / All Delivered / Any Undelivered
 
-  // modal
+  // modal (history tab)
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [selected, setSelected] = useState(null); // selected purchase row
@@ -97,6 +113,24 @@ export default function Purchases() {
   const [deliverSelected, setDeliverSelected] = useState({}); // {lineId: boolean}
   const [deliverAll, setDeliverAll] = useState(false);
   const [freightCharge, setFreightCharge] = useState("");
+
+  // Set up delivery mode with all items selected by default
+  const handleSetDeliverMode = (value) => {
+    setDeliverMode(value);
+    if (value) {
+      // When entering deliver mode, select all undelivered items by default
+      const selected = {};
+      undeliveredLines.forEach((line) => {
+        selected[line.id] = true;
+      });
+      setDeliverSelected(selected);
+      setDeliverAll(undeliveredLines.length > 0);
+    } else {
+      // When exiting deliver mode, clear selections
+      setDeliverSelected({});
+      setDeliverAll(false);
+    }
+  };
 
   // form
   const [header, setHeader] = useState(EMPTY_HEADER);
@@ -127,6 +161,40 @@ export default function Purchases() {
     return { deliveredLines: delivered, undeliveredLines: undelivered };
   }, [lines]);
 
+  /** ======= DEMAND tab state ======= */
+  const [demandLoading, setDemandLoading] = useState(false);
+  const [demandRows, setDemandRows] = useState([]); // computed rows
+  const [filteredDemandRows, setFilteredDemandRows] = useState([]); // filtered rows for display
+  const [demandHideCovered, setDemandHideCovered] = useState(false); // optionally hide NetNeeded=0
+  const [demandSearch, setDemandSearch] = useState(''); // search term for product name
+  const [selectedClientId, setSelectedClientId] = useState(''); // selected client ID for filter
+  const [allClients, setAllClients] = useState([]); // all clients for filter dropdown
+  const [demandPage, setDemandPage] = useState(1);
+  const demandPageSize = 10;
+  const demandTotalPages = useMemo(
+    () => Math.max(1, Math.ceil((filteredDemandRows.length || 0) / demandPageSize)),
+    [filteredDemandRows.length]
+  );
+  const demandFrom = (demandPage - 1) * demandPageSize;
+  const demandTo = Math.min(demandFrom + demandPageSize, filteredDemandRows.length);
+  const paginatedDemandRows = useMemo(
+    () => filteredDemandRows.slice(demandFrom, demandTo),
+    [filteredDemandRows, demandFrom, demandTo]
+  );
+
+  // Pagination handlers
+  const goToDemandPage = (page) => {
+    setDemandPage(page);
+  };
+
+  const goToPrevDemandPage = () => {
+    setDemandPage(p => Math.max(1, p - 1));
+  };
+
+  const goToNextDemandPage = () => {
+    setDemandPage(p => Math.min(demandTotalPages, p + 1));
+  };
+
   // load refs
   useEffect(() => {
     (async () => {
@@ -134,7 +202,7 @@ export default function Purchases() {
         supabase.from("vendors").select("id,name").order("name"),
         supabase
           .from("products")
-          .select("id,name,unit,tax_rate,purchase_price")
+          .select("id,name,unit,tax_rate,purchase_price,product_type")
           .order("name"),
         supabase.from("clients").select("id,name").order("name"),
       ]);
@@ -144,8 +212,11 @@ export default function Purchases() {
     })();
   }, []);
 
-  // fetch list (with filters)
+  /** =========================
+   * HISTORY tab listing + filters
+   * ========================= */
   async function fetchPurchases() {
+    if (view !== VIEW_TABS.HISTORY) return;
     setLoading(true);
 
     let q = supabase
@@ -186,10 +257,9 @@ export default function Purchases() {
     setRows(data || []);
     setCount(c || 0);
   }
-
   useEffect(() => {
     fetchPurchases(); // eslint-disable-line
-  }, [page, search, filterStatus, filterVendorId, filterClientId, filterDelivered]);
+  }, [view, page, search, filterStatus, filterVendorId, filterClientId, filterDelivered]);
 
   // helpers
   const vendorName = (id) => vendors.find((v) => v.id === id)?.name || "-";
@@ -296,6 +366,52 @@ export default function Purchases() {
     });
   }
 
+  // ===== INVENTORY UPSERT/ACCUMULATE (generic bucket, client_id NULL) =====
+  async function upsertInventoryAdd(product_id, qty, unit, tax_rate) {
+    if (!product_id || !qty) return;
+    const delta = Math.abs(Number(qty));
+
+    const { data: existingInv, error: invSelErr } = await supabase
+      .from("inventory")
+      .select("id,quantity,product_id,client_id")
+      .eq("product_id", product_id)
+      .is("client_id", null)
+      .limit(1);
+
+    if (invSelErr) {
+      console.error("Inventory select error:", invSelErr);
+      return;
+    }
+
+    if (existingInv && existingInv.length > 0) {
+      const row = existingInv[0];
+      const newQty = Number(row.quantity || 0) + delta;
+
+      const { error: updErr } = await supabase
+        .from("inventory")
+        .update({
+          quantity: newQty,
+          unit: unit || null,
+          tax_rate: tax_rate || null,
+        })
+        .eq("id", row.id);
+
+      if (updErr) console.error("Inventory update error:", updErr);
+    } else {
+      const { error: insErr } = await supabase.from("inventory").insert([
+        {
+          product_id,
+          client_id: null,
+          quantity: Number(delta),
+          unit: unit || null,
+          tax_rate: tax_rate || "Tax Exemption",
+        },
+      ]);
+
+      if (insErr) console.error("Inventory insert error:", insErr);
+    }
+  }
+
   // save (create/update)
   async function handleSave(e) {
     e.preventDefault();
@@ -329,6 +445,7 @@ export default function Purchases() {
     };
 
     if (!selected) {
+      // ---------- CREATE ----------
       const { data: inserted, error: e1 } = await supabase
         .from("purchases")
         .insert([headerPayload])
@@ -356,7 +473,28 @@ export default function Purchases() {
         console.error(e2);
         return;
       }
+
+      // Update inventory only
+      try {
+        // Group by product_id to minimize queries
+        const grouped = items.reduce((acc, it) => {
+          const key = it.product_id;
+          acc[key] = acc[key] || { qty: 0, unit: it.unit, tax_rate: it.tax_rate };
+          acc[key].qty += Number(it.quantity) || 0;
+          return acc;
+        }, {});
+
+        for (const pid of Object.keys(grouped)) {
+          const g = grouped[pid];
+          // INVENTORY generic bucket (client_id NULL)
+          await upsertInventoryAdd(pid, g.qty, g.unit, g.tax_rate);
+        }
+      } catch (x) {
+        console.error("Post-create inventory update failed:", x);
+        alert("Created, but failed to update inventory. See console.");
+      }
     } else {
+      // ---------- UPDATE ----------
       // ---- Harden purchase_at and payload types ----
       const parsedAt = new Date(header.purchase_at); // from <input type="datetime-local">
       if (isNaN(parsedAt.getTime())) {
@@ -414,6 +552,9 @@ export default function Purchases() {
         alert(`Items update failed: ${e2.message}`);
         return;
       }
+
+      // NOTE: For updates, we are not auto-adjusting inventory diffs here,
+      // because computing deltas vs. previous state is non-trivial.
     }
 
     await fetchPurchases();
@@ -455,98 +596,11 @@ export default function Purchases() {
     const allIds = lines.map((l) => l.id);
     setDeliverAll(
       allIds.length > 0 &&
-        allIds.every((i) => next[i] || lines.find((l) => l.id === i)?.delivered)
+      allIds.every((i) => next[i] || lines.find((l) => l.id === i)?.delivered)
     );
   }
 
-  // ===== INVENTORY MERGE (fixes duplicates) =====
-  // For each selected undelivered line, accumulate by product and merge into inventory
-  // Rule: if (product_id exists AND client_id IS NULL) => UPDATE (add qty); else INSERT (client_id: null)
-  async function mergeDeliveredIntoInventory(purchaseRow, pickedLineIds) {
-    if (!purchaseRow || pickedLineIds.length === 0) return;
-
-    // 1) Gather the selected lines we just marked delivered
-    const picked = lines.filter((l) => pickedLineIds.includes(l.id));
-    if (picked.length === 0) return;
-
-    // 2) Group quantities by product_id (sum)
-    const groups = picked.reduce((acc, l) => {
-      const key = l.product_id;
-      acc[key] = acc[key] || {
-        product_id: l.product_id,
-        qty: 0,
-        unit: l.unit,
-        tax_rate: l.tax_rate,
-      };
-      acc[key].qty += Number(l.quantity) || 0;
-      return acc;
-    }, {});
-
-    const productIds = Object.keys(groups);
-    if (productIds.length === 0) return;
-
-    // 3) For each product, update existing (client_id IS NULL) or insert new
-    for (const pid of productIds) {
-      const g = groups[pid];
-      // IMPORTANT: use .is('client_id', null) — NOT .eq(..., null)
-      const { data: existingRows, error: selErr } = await supabase
-        .from("inventory")
-        .select("id,quantity,product_id,client_id")
-        .eq("product_id", pid)
-        .is("client_id", null) // <— this prevents the duplicates you saw
-        .limit(1);
-
-      if (selErr) {
-        console.error("Inventory select error:", selErr);
-        continue;
-      }
-
-      const p = productById(pid);
-
-      if (existingRows && existingRows.length > 0) {
-        // UPDATE existing row: add quantity and refresh a couple fields
-        const row = existingRows[0];
-        const newQty = Number(row.quantity || 0) + Number(g.qty || 0);
-
-        const { error: updErr } = await supabase
-          .from("inventory")
-          .update({
-            quantity: newQty,
-            unit: g.unit || p?.unit || null,
-            tax_rate: g.tax_rate || p?.tax_rate || null,
-            // any other fields you maintain can be refreshed here safely
-          })
-          .eq("id", row.id);
-
-        if (updErr) {
-          console.error("Inventory update error:", updErr);
-          alert(
-            `Failed to update inventory for ${productName(pid)}: ${updErr.message}`
-          );
-        }
-      } else {
-        // INSERT a new inventory row for this product with client_id: null
-        const { error: insErr } = await supabase.from("inventory").insert([
-          {
-            product_id: pid,
-            client_id: null, // <— critical for your rule
-            quantity: Number(g.qty || 0),
-            unit: g.unit || p?.unit || null,
-            tax_rate: g.tax_rate || p?.tax_rate || "Tax Exemption",
-          },
-        ]);
-
-        if (insErr) {
-          console.error("Inventory insert error:", insErr);
-          alert(
-            `Failed to insert inventory for ${productName(pid)}: ${insErr.message}`
-          );
-        }
-      }
-    }
-  }
-
-  // save delivery (mark selected lines delivered + split freight + merge inventory)
+  // save delivery (mark selected lines delivered + split freight)
   async function handleSaveDelivery(e) {
     e.preventDefault();
 
@@ -616,7 +670,9 @@ export default function Purchases() {
       const firstErr = results.find((r) => r.error)?.error;
       if (firstErr) {
         console.error("Line update error:", firstErr);
-        alert(`Failed to update line items: ${firstErr.message || "Unknown error"}`);
+        alert(
+          `Failed to update line items: ${firstErr.message || "Unknown error"}`
+        );
         return;
       }
 
@@ -625,17 +681,15 @@ export default function Purchases() {
         prev.map((ln) => {
           const upd = perLineUpdates.find((u) => u.id === ln.id);
           return upd
-            ? {
-                ...ln,
-                delivered: true,
-                freight_charge_split: upd.new_split,
-              }
+            ? { ...ln, delivered: true, freight_charge_split: upd.new_split }
             : ln;
         })
       );
     } catch (err) {
       console.error("Update crash:", err);
-      alert("Failed to update line items (client exception). See console for details.");
+      alert(
+        "Failed to update line items (client exception). See console for details."
+      );
       return;
     }
 
@@ -660,14 +714,6 @@ export default function Purchases() {
       }
     }
 
-    // 3) Merge delivered quantities into INVENTORY (this fixes duplicates)
-    try {
-      await mergeDeliveredIntoInventory(selected, selectedIds);
-    } catch (e) {
-      console.error("Inventory merge exception:", e);
-      alert("Delivered, but failed to merge inventory. See console.");
-    }
-
     // Refresh and return to view mode
     await openView(selected);
     setDeliverMode(false);
@@ -687,643 +733,989 @@ export default function Purchases() {
       : `Purchase ${selected.purchase_id}`
     : "Add Purchase";
 
+  /** =========================
+   * DEMAND TAB: Simplified version without order_inventory
+   * ========================= */
+  const productMap = useMemo(
+    () =>
+      Object.fromEntries(
+        (products || []).map((p) => [
+          p.id,
+          { name: p.name, unit: p.unit, product_type: p.product_type },
+        ])
+      ),
+    [products]
+  );
+  const clientMap = useMemo(
+    () => Object.fromEntries((clients || []).map((c) => [c.id, c.name])),
+    [clients]
+  );
+
+  async function loadDemand() {
+    if (view !== VIEW_TABS.DEMAND) return;
+    setDemandLoading(true);
+
+    try {
+      // Get undelivered purchase items only (simplified demand view)
+      const { data: piRows, error: ePI } = await supabase
+        .from("purchase_items")
+        .select("id, purchase_id, product_id, quantity, delivered")
+        .eq("delivered", false);
+
+      if (ePI) throw ePI;
+
+      // Fetch parent purchases to get client_id and check deleted status
+      const purchaseIds = Array.from(new Set((piRows || []).map((r) => r.purchase_id)));
+      let purchasesMap = {};
+      if (purchaseIds.length) {
+        const { data: purRows, error: ePur } = await supabase
+          .from("purchases")
+          .select("id, client_id, deleted")
+          .in("id", purchaseIds);
+        if (ePur) throw ePur;
+        purchasesMap = Object.fromEntries((purRows || []).map((p) => [p.id, p]));
+      }
+
+      // Build demand rows from undelivered purchase items
+      const rows = [];
+      const productGroups = {};
+
+      // Group by product and client
+      for (const item of piRows || []) {
+        const parent = purchasesMap[item.purchase_id];
+        if (!parent || parent.deleted) continue;
+
+        const pMeta = productMap[item.product_id];
+        if (!pMeta) continue;
+
+        const key = `${item.product_id}-${parent.client_id || 'generic'}`;
+        if (!productGroups[key]) {
+          productGroups[key] = {
+            product_id: item.product_id,
+            product_name: pMeta.name || "(Unknown product)",
+            client_id: parent.client_id,
+            client_name: parent.client_id ? clientMap[parent.client_id] || "(Unknown client)" : "-",
+            unit: pMeta.unit || "",
+            purchased: 0,
+          };
+        }
+        productGroups[key].purchased += Number(item.quantity || 0);
+      }
+
+      // Convert to array and filter out zero quantities
+      const demandData = Object.values(productGroups).filter(r => r.purchased > 0);
+
+      // Store all clients for filter dropdown
+      const clientSet = new Set();
+      demandData.forEach(row => {
+        if (row.client_id) {
+          clientSet.add(JSON.stringify({ id: row.client_id, name: row.client_name }));
+        }
+      });
+      setAllClients(Array.from(clientSet).map(str => JSON.parse(str)));
+
+      // Apply filters and update state
+      applyDemandFilters(demandData, demandHideCovered, demandSearch, selectedClientId);
+      setDemandRows(demandData);
+    } catch (err) {
+      console.error("loadDemand error:", err);
+      setDemandRows([]);
+    } finally {
+      setDemandLoading(false);
+    }
+  }
+
+  // Apply filters to demand rows
+  const applyDemandFilters = (rows, hideCovered, searchTerm, clientId) => {
+    let filtered = [...(rows || [])];
+
+    // Apply search term filter (case-insensitive)
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(r =>
+        r.product_name.toLowerCase().includes(term)
+      );
+    }
+
+    // Apply client filter
+    if (clientId) {
+      filtered = filtered.filter(r =>
+        clientId === 'no-client' ? !r.client_id : r.client_id === clientId
+      );
+    }
+
+    setFilteredDemandRows(filtered);
+    // Reset to first page when filters change
+    setDemandPage(1);
+  };
+
+  // Update filters when dependencies change
+  useEffect(() => {
+    applyDemandFilters(demandRows, demandHideCovered, demandSearch, selectedClientId);
+  }, [demandRows, demandHideCovered, demandSearch, selectedClientId]);
+
+  // Load demand data when view changes
+  useEffect(() => {
+    if (view === VIEW_TABS.DEMAND) {
+      loadDemand();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  /** =========================
+   * Render
+   * ========================= */
   return (
-    <div className="wrap">
-      <header className="bar">
-        <h1 className="title">Purchases</h1>
-        <button className="btn primary modal-btn" onClick={openAdd}>
-          + Add Purchase
-        </button>
-      </header>
+    <NavFrame>
+      <div className="wrap">
+        {/* Top bar with tabs */}
+        <header className="bar" style={{ gap: 12, alignItems: "center" }}>
+          {view === VIEW_TABS.HISTORY && (
+            <h1 className="title">Purchases</h1>
+          )}
+          {view !== VIEW_TABS.HISTORY && (
+            <h1 className="title">Demand (Undelivered Purchases)</h1>
+          )}
+          <div className="tabs" role="tablist" aria-label="Select view">
+            <button
+              type="button"
+              className="tab-btn"
+              role="tab"
+              aria-selected={view === VIEW_TABS.HISTORY}
+              onClick={() => setView(VIEW_TABS.HISTORY)}
+              title="Purchase history"
+            >
+              Purchase History
+            </button>
+            <button
+              type="button"
+              className="tab-btn"
+              role="tab"
+              aria-selected={view === VIEW_TABS.DEMAND}
+              onClick={() => setView(VIEW_TABS.DEMAND)}
+              title="Undelivered purchases"
+            >
+              Demand
+            </button>
+          </div>
 
-      {/* ------- Filters Toolbar ------- */}
-      <div className="toolbar">
-        <select
-          className="input"
-          value={filterStatus}
-          onChange={(e) => {
-            setPage(1);
-            setFilterStatus(e.target.value);
-          }}
-        >
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>{`Status: ${s}`}</option>
-          ))}
-        </select>
+        </header>
+        {view === VIEW_TABS.HISTORY && (
+          <button className="btn primary modal-btn" onClick={openAdd}>
+            + Add Purchase
+          </button>
+        )}
 
-        <SearchSelect
-          placeholder="Filter vendor…"
-          options={vendors.map((v) => ({ id: v.id, label: v.name }))}
-          valueId={filterVendorId}
-          onChange={(opt) => {
-            setPage(1);
-            setFilterVendorId(opt?.id || "");
-          }}
-        />
-
-        <SearchSelect
-          placeholder="Filter client…"
-          options={clients.map((c) => ({ id: c.id, label: c.name }))}
-          valueId={filterClientId}
-          onChange={(opt) => {
-            setPage(1);
-            setFilterClientId(opt?.id || "");
-          }}
-        />
-
-        <select
-          className="input"
-          value={filterDelivered}
-          onChange={(e) => {
-            setPage(1);
-            setFilterDelivered(e.target.value);
-          }}
-        >
-          {DELIVERED_OPTIONS.map((d) => (
-            <option key={d} value={d}>{`Delivered: ${d}`}</option>
-          ))}
-        </select>
-
-        <button className="btn" onClick={clearFilters}>
-          Clear
-        </button>
-      </div>
-
-      <div className="card">
-        <div className="table-wrap">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Purchase ID</th>
-                <th>Vendor</th>
-                <th>Client</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th className="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan="7" className="muted center">
-                    Loading…
-                  </td>
-                </tr>
-              )}
-              {!loading && rows.length === 0 && (
-                <tr>
-                  <td colSpan="7" className="muted center">
-                    No purchases
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                rows.map((r) => (
-                  <tr key={r.id}>
-                    <td data-th="Purchase ID">{r.purchase_id}</td>
-                    <td data-th="Vendor">{vendorName(r.vendor_id)}</td>
-                    <td data-th="Client">{clientName(r.client_id)}</td>
-                    <td data-th="Date">{new Date(r.purchase_at).toLocaleString()}</td>
-                    <td data-th="Status">
-                      <span
-                        className={`status ${
-                          r.status === "Closed" ? "status--active" : "status--inactive"
-                        }`}
-                      >
-                        <span className="dot" />
-                        {r.status || "Open"}
-                      </span>
-                    </td>
-                    <td className="right" data-th="Actions">
-                      <button className="btn ghost" onClick={() => openView(r)}>
-                        View
-                      </button>
-                    </td>
-                  </tr>
+        {/* ====== HISTORY VIEW ====== */}
+        {view === VIEW_TABS.HISTORY && (
+          <>
+            {/* ------- Filters Toolbar ------- */}
+            <div className="toolbar">
+              <select
+                className="input"
+                value={filterStatus}
+                onChange={(e) => {
+                  setPage(1);
+                  setFilterStatus(e.target.value);
+                }}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{`Status: ${s}`}</option>
                 ))}
-            </tbody>
-          </table>
-        </div>
+              </select>
 
-        <div className="pager">
-          <div className="muted">
-            {count} total • Page {page} of {totalPages}
-          </div>
-          <div className="pager-controls">
-            <button className="btn" onClick={goPrev} disabled={page <= 1}>
-              Prev
-            </button>
-            <button className="btn" onClick={goNext} disabled={page >= totalPages}>
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
+              <SearchSelect
+                placeholder="Filter vendor…"
+                options={vendors.map((v) => ({ id: v.id, label: v.name }))}
+                valueId={filterVendorId}
+                onChange={(opt) => {
+                  setPage(1);
+                  setFilterVendorId(opt?.id || "");
+                }}
+              />
 
-      {modalOpen && (
-        <div className="modal">
-          <div className="modal-card modal-card--xl" style={{ width: "80vw" }}>
-            <div className="modal-head">
-              <h2 className="modal-title">{modalTitle}</h2>
-              <button className="btn icon" onClick={closeModal} aria-label="Close">
-                ×
+              <SearchSelect
+                placeholder="Filter client…"
+                options={clients.map((c) => ({ id: c.id, label: c.name }))}
+                valueId={filterClientId}
+                onChange={(opt) => {
+                  setPage(1);
+                  setFilterClientId(opt?.id || "");
+                }}
+              />
+
+              <select
+                className="input"
+                value={filterDelivered}
+                onChange={(e) => {
+                  setPage(1);
+                  setFilterDelivered(e.target.value);
+                }}
+              >
+                {DELIVERED_OPTIONS.map((d) => (
+                  <option key={d} value={d}>{`Delivered: ${d}`}</option>
+                ))}
+              </select>
+              <button className="btn" onClick={clearFilters}>
+                Clear
               </button>
             </div>
 
-            <form onSubmit={handleSave}>
-              {/* ---------- DELIVERY MODE ---------- */}
-              {deliverMode ? (
-                <>
-                  <div className="details-grid">
-                    <div className="details-col">
-                      <div className="detail-row">
-                        <div className="detail-label">Purchase</div>
-                        <div className="detail-value">{selected?.purchase_id}</div>
-                      </div>
-                      <div className="detail-row">
-                        <div className="detail-label">Vendor</div>
-                        <div className="detail-value">
-                          {vendorName(header.vendor_id)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="details-col">
-                      <label className="lbl">
-                        <span className="lbl-text">Freight Charge (this delivery)</span>
-                        <input
-                          className="input input--sm"
-                          type="number"
-                          inputMode="decimal"
-                          step="0.01"
-                          min="0"
-                          placeholder="0.00"
-                          value={freightCharge}
-                          onChange={(e) => setFreightCharge(e.target.value)}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: 12,
-                      marginBottom: 8,
-                      fontWeight: 700,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>Select Items to mark as Delivered</span>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={deliverAll}
-                        onChange={(e) => toggleSelectAll(e.target.checked)}
-                      />
-                      <span>Select all</span>
-                    </label>
-                  </div>
-
-                  <div className="card" style={{ padding: 12 }}>
-                    <div className="table-wrap">
-                      <table className="tbl">
-                        <thead>
-                          <tr>
-                            <th style={{ width: 60 }}>Pick</th>
-                            <th>Product</th>
-                            <th>Qty</th>
-                            <th>Unit</th>
-                            <th>Unit Price</th>
-                            <th>Delivered?</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {undeliveredLines.map((ln) => {
-                            const checked = !!deliverSelected[ln.id];
-                            return (
-                              <tr key={ln.id}>
-                                <td className="check" data-th="Pick">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={(e) =>
-                                      toggleSelectOne(ln.id, e.target.checked)
-                                    }
-                                  />
-                                </td>
-                                <td data-th="Product">{productName(ln.product_id)}</td>
-                                <td data-th="Qty">{ln.quantity}</td>
-                                <td data-th="Unit">{ln.unit}</td>
-                                <td data-th="Unit Price">{inr(ln.unit_price)}</td>
-                                <td data-th="Delivered?">No</td>
-                              </tr>
-                            );
-                          })}
-                          {undeliveredLines.length === 0 && (
-                            <tr>
-                              <td colSpan="6" className="muted center">
-                                All items have been delivered
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="modal-actions between" style={{ marginTop: 12 }}>
-                    <button
-                      type="button"
-                      className="btn modal-btn"
-                      onClick={() => setDeliverMode(false)}
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="button"
-                      className="btn primary modal-btn"
-                      onClick={handleSaveDelivery}
-                    >
-                      Save Delivery
-                    </button>
-                  </div>
-                </>
-              ) : (
-                /* ---------- NORMAL MODE: VIEW or EDIT ---------- */
-                <>
-                  {/* ---------- VIEW MODE (read-only) ---------- */}
-                  {!isEditing ? (
-                    <>
-                      {/* Header: Vendor + Client same row */}
-                      <div className="details-grid">
-                        <div className="details-col">
-                          <div className="detail-row">
-                            <div className="detail-label">Vendor</div>
-                            <div className="detail-value">
-                              {vendorName(header.vendor_id)}
-                            </div>
-                          </div>
-
-                          <div className="detail-row">
-                            <div className="detail-label">Mode of Payment</div>
-                            <div className="detail-value">
-                              {header.mode_of_payment}
-                            </div>
-                          </div>
-
-                          <div className="detail-row">
-                            <div className="detail-label">
-                              Purchase Date & Time
-                            </div>
-                            <div className="detail-value">
-                              {new Date(header.purchase_at).toLocaleString()}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="details-col">
-                          <div className="detail-row">
-                            <div className="detail-label">Client</div>
-                            <div className="detail-value">
-                              {clientName(header.client_id)}
-                            </div>
-                          </div>
-                          <div className="detail-row">
-                            <div className="detail-label">Brief Description</div>
-                            <div className="detail-value">
-                              {header.description || (
-                                <span className="muted">-</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Line items (read-only table) */}
-                      <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}>
-                        Line Items
-                      </div>
-                      <div className="card" style={{ padding: 12 }}>
-                        <div className="table-wrap">
-                          <table className="tbl">
-                            <thead>
-                              <tr>
-                                <th>Product</th>
-                                <th>Qty</th>
-                                <th>Unit</th>
-                                <th>Unit Price</th>
-                                <th>Tax Rate</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {lines.length === 0 && (
-                                <tr>
-                                  <td colSpan="5" className="muted center">
-                                    No items
-                                  </td>
-                                </tr>
-                              )}
-                              {lines.map((ln, idx) => (
-                                <tr key={idx}>
-                                  <td data-th="Product">{productName(ln.product_id)}</td>
-                                  <td data-th="Qty">{ln.quantity}</td>
-                                  <td data-th="Unit">{ln.unit}</td>
-                                  <td data-th="Unit Price">
-                                    {(() => {
-                                      const split = Number(ln.freight_charge_split || 0);
-                                      const qty = Number(ln.quantity || 0);
-                                      const perUnitFreight = qty > 0 ? split / qty : 0;
-                                      const totalPerUnit =
-                                        Number(ln.unit_price) + perUnitFreight;
-                                      return `${inr(totalPerUnit)} = (${inr(
-                                        ln.unit_price
-                                      )} + ${inr(perUnitFreight)})`;
-                                    })()}
-                                  </td>
-                                  <td data-th="Tax Rate">{ln.tax_rate}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Footer actions (view-only) */}
-                      <div className="purchase-view-actions margin-bottom" role="toolbar" aria-label="Purchase actions">
-                        <button type="button" className="btn modal-btn" onClick={closeModal}>
-                          Close
-                        </button>
-
-                        {selected && !allDelivered && (
-                          <button
-                            type="button"
-                            className="btn modal-btn"
-                            style={{ backgroundColor: "#2563eb", color: "white" }}
-                            onClick={() => setDeliverMode(true)}
-                          >
-                            Mark as Delivered
-                          </button>
-                        )}
-
-                        {selected && (
-                          <>
-                            {!preventMutations && (
-                              <button
-                                type="button"
-                                className="btn modal-btn danger"
-                                onClick={() => setConfirmOpen(true)}
-                              >
-                                Delete
-                              </button>
-                            )}
-                            {!preventMutations && (
-                              <button
-                                type="button"
-                                className="btn modal-btn primary"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setIsEditing(true);
-                                }}
-                              >
-                                Edit
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    /* ---------- EDIT MODE (inputs) ---------- */
-                    <>
-                      {/* Header */}
-                      <div className="details-grid">
-                        <div className="details-col">
-                          {/* Vendor */}
-                          <label className="lbl">
-                            <span className="lbl-text">Vendor *</span>
-                            <SearchSelect
-                              placeholder="Search vendor…"
-                              options={vendors.map((v) => ({
-                                id: v.id,
-                                label: v.name,
-                              }))}
-                              valueId={header.vendor_id}
-                              onChange={(opt) =>
-                                setHeader({ ...header, vendor_id: opt?.id || "" })
-                              }
-                            />
-                          </label>
-
-                          <label className="lbl">
-                            <span className="lbl-text">Mode of Payment</span>
-                            <select
-                              className="input"
-                              value={header.mode_of_payment}
-                              onChange={(e) =>
-                                setHeader({ ...header, mode_of_payment: e.target.value })
-                              }
-                              required
+            <div className="card">
+              <div className="table-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Purchase ID</th>
+                      <th>Vendor</th>
+                      <th>Client</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th className="right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && (
+                      <tr>
+                        <td colSpan="7" className="muted center">
+                          Loading…
+                        </td>
+                      </tr>
+                    )}
+                    {!loading && rows.length === 0 && (
+                      <tr>
+                        <td colSpan="7" className="muted center">
+                          No purchases
+                        </td>
+                      </tr>
+                    )}
+                    {!loading &&
+                      rows.map((r) => (
+                        <tr key={r.id}>
+                          <td data-th="Purchase ID">{r.purchase_id}</td>
+                          <td data-th="Vendor">{vendorName(r.vendor_id)}</td>
+                          <td data-th="Client">{clientName(r.client_id)}</td>
+                          <td data-th="Date">
+                            {new Date(r.purchase_at).toLocaleString()}
+                          </td>
+                          <td data-th="Status">
+                            <span
+                              className={`status ${r.status === "Closed"
+                                ? "status--active"
+                                : "status--inactive"
+                                }`}
                             >
-                              {MOP_OPTIONS.map((m) => (
-                                <option key={m} value={m}>
-                                  {m}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-
-                          <label className="lbl">
-                            <span className="lbl-text">Purchase Date &amp; Time</span>
-                            <input
-                              className="input"
-                              type="datetime-local"
-                              value={header.purchase_at}
-                              onChange={(e) =>
-                                setHeader({ ...header, purchase_at: e.target.value })
-                              }
-                              required
-                            />
-                          </label>
-                        </div>
-
-                        <div className="details-col">
-                          {/* Client */}
-                          <label className="lbl">
-                            <span className="lbl-text">Client (optional)</span>
-                            <SearchSelect
-                              placeholder="Search client…"
-                              options={clients.map((c) => ({
-                                id: c.id,
-                                label: c.name,
-                              }))}
-                              valueId={header.client_id}
-                              onChange={(opt) =>
-                                setHeader({ ...header, client_id: opt?.id || "" })
-                              }
-                            />
-                          </label>
-
-                          <label className="lbl">
-                            <span className="lbl-text">Brief Description</span>
-                            <input
-                              className="input input--sm"
-                              maxLength={160}
-                              placeholder="Brief description…"
-                              value={header.description}
-                              onChange={(e) =>
-                                setHeader({ ...header, description: e.target.value })
-                              }
-                            />
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Line items (editable) */}
-                      <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}>
-                        Line Items
-                      </div>
-                      <div className="card" style={{ padding: 12 }}>
-                        <div className="line-head">
-                          <div>Product</div>
-                          <div>Qty</div>
-                          <div>Unit</div>
-                          <div>Unit Price</div>
-                          <div>Tax Rate</div>
-                          <div></div>
-                        </div>
-
-                        {lines.map((ln, idx) => (
-                          <div key={idx} className="line-row">
-                            <SearchSelect
-                              placeholder="Search product…"
-                              options={products.map((p) => ({ id: p.id, label: p.name }))}
-                              valueId={ln.product_id}
-                              onChange={(opt) => onProductChange(idx, opt)}
-                            />
-
-                            <input
-                              className="input"
-                              type="number"
-                              inputMode="decimal"
-                              step="0.001"
-                              placeholder="Qty"
-                              value={ln.quantity}
-                              onChange={(e) => setLine(idx, { quantity: e.target.value })}
-                              required
-                            />
-
-                            <input
-                              className="input"
-                              placeholder="Unit"
-                              value={ln.unit}
-                              onChange={(e) => setLine(idx, { unit: e.target.value })}
-                              required
-                            />
-
-                            <input
-                              className="input"
-                              type="number"
-                              inputMode="decimal"
-                              step="0.01"
-                              placeholder="Unit Price"
-                              value={ln.unit_price}
-                              onChange={(e) =>
-                                setLine(idx, { unit_price: e.target.value })
-                              }
-                              required
-                            />
-
-                            <select
-                              className="input"
-                              value={ln.tax_rate}
-                              onChange={(e) => setLine(idx, { tax_rate: e.target.value })}
-                              required
-                            >
-                              {TAX_OPTIONS.map((t) => (
-                                <option key={t} value={t}>
-                                  {t}
-                                </option>
-                              ))}
-                            </select>
-
-                            <button
-                              type="button"
-                              className="btn danger"
-                              onClick={() => removeLine(idx)}
-                            >
-                              Remove
+                              <span className="dot" />
+                              {r.status || "Open"}
+                            </span>
+                          </td>
+                          <td className="right" data-th="Actions">
+                            <button className="btn ghost" onClick={() => openView(r)}>
+                              View
                             </button>
-                          </div>
-                        ))}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
 
-                        <div style={{ marginTop: 8 }}>
-                          <button type="button" className="btn" onClick={addLine}>
-                            + Add Line
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Footer actions (edit mode) */}
-                      <div className="modal-actions between" style={{ marginTop: 12 }}>
-                        <button
-                          type="button"
-                          className="btn modal-btn"
-                          onClick={() => {
-                            if (selected) {
-                              setIsEditing(false);
-                              openView(selected);
-                            } else {
-                              closeModal();
-                            }
-                          }}
-                        >
-                          Cancel
-                        </button>
-                        <div className="modal-footer margin-bottom ">
-                          {selected && (
-                            <button
-                              type="button"
-                              className="btn danger modal-btn"
-                              onClick={() => setConfirmOpen(true)}
-                            >
-                              Remove
-                            </button>
-                          )}
-                          <button type="submit" className="btn primary width-100 modal-btn">
-                            {selected ? "Save Changes" : "Create"}
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-            </form>
-          </div>
-
-          {confirmOpen && selected && (
-            <div className="confirm">
-              <div className="confirm-card">
-                <div className="confirm-title">Delete Purchase?</div>
-                <p className="confirm-text">
-                  This cannot be undone. Remove <b>{selected.purchase_id}</b>?
-                </p>
-                <div className="confirm-actions">
-                  <button className="btn modal-btn" onClick={() => setConfirmOpen(false)}>
-                    Cancel
+              <div className="pager">
+                <div className="muted">
+                  {count} total • Page {page} of {totalPages}
+                </div>
+                <div className="pager-controls">
+                  <button className="btn" onClick={goPrev} disabled={page <= 1}>
+                    Prev
                   </button>
-                  <button className="btn danger modal-btn" onClick={confirmDelete}>
-                    Delete
+                  <button className="btn" onClick={goNext} disabled={page >= totalPages}>
+                    Next
                   </button>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
-    </div>
+
+            {modalOpen && (
+              <div className="modal">
+                <div className="modal-card modal-card--xl" style={{ width: "80vw" }}>
+                  <div className="modal-head">
+                    <h2 className="modal-title">{modalTitle}</h2>
+                    <button className="btn icon" onClick={closeModal} aria-label="Close">
+                      ×
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSave}>
+                    {/* ---------- DELIVERY MODE ---------- */}
+                    {deliverMode ? (
+                      <>
+                        <div className="details-grid">
+                          <div className="details-col">
+                            <div className="detail-row">
+                              <div className="detail-label">Purchase</div>
+                              <div className="detail-value">{selected?.purchase_id}</div>
+                            </div>
+                            <div className="detail-row">
+                              <div className="detail-label">Vendor</div>
+                              <div className="detail-value">
+                                {vendorName(header.vendor_id)}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="details-col">
+                            <label className="lbl">
+                              <span className="lbl-text">Freight Charge (this delivery)</span>
+                              <input
+                                className="input input--sm"
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                value={freightCharge}
+                                onChange={(e) => setFreightCharge(e.target.value)}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            marginTop: 12,
+                            marginBottom: 8,
+                            fontWeight: 700,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span>Select Items to mark as Delivered</span>
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              checked={deliverAll}
+                              onChange={(e) => toggleSelectAll(e.target.checked)}
+                            />
+                            <span>Select all</span>
+                          </label>
+                        </div>
+
+                        <div className="card" style={{ padding: 12 }}>
+                          <div className="table-wrap">
+                            <table className="tbl">
+                              <thead>
+                                <tr>
+                                  <th style={{ width: 60 }}>Pick</th>
+                                  <th>Product</th>
+                                  <th>Qty</th>
+                                  <th>Unit</th>
+                                  <th>Unit Price</th>
+                                  <th>Delivered?</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {undeliveredLines.map((ln) => {
+                                  const checked = !!deliverSelected[ln.id];
+                                  return (
+                                    <tr key={ln.id}>
+                                      <td className="check" data-th="Pick">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(e) =>
+                                            toggleSelectOne(ln.id, e.target.checked)
+                                          }
+                                        />
+                                      </td>
+                                      <td data-th="Product">{productName(ln.product_id)}</td>
+                                      <td data-th="Qty">{ln.quantity}</td>
+                                      <td data-th="Unit">{ln.unit}</td>
+                                      <td data-th="Unit Price">{inr(ln.unit_price)}</td>
+                                      <td data-th="Delivered?">No</td>
+                                    </tr>
+                                  );
+                                })}
+                                {undeliveredLines.length === 0 && (
+                                  <tr>
+                                    <td colSpan="6" className="muted center">
+                                      All items have been delivered
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        <div className="modal-actions between" style={{ marginTop: 12 }}>
+                          <button
+                            type="button"
+                            className="btn modal-btn"
+                            onClick={() => setDeliverMode(false)}
+                          >
+                            Back
+                          </button>
+                          <button
+                            type="button"
+                            className="btn primary modal-btn"
+                            onClick={handleSaveDelivery}
+                          >
+                            Save Delivery
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      /* ---------- NORMAL MODE: VIEW or EDIT ---------- */
+                      <>
+                        {/* ---------- VIEW MODE (read-only) ---------- */}
+                        {!isEditing ? (
+                          <>
+                            {/* Header: Vendor + Client same row */}
+                            <div className="details-grid">
+                              <div className="details-col">
+                                <div className="detail-row">
+                                  <div className="detail-label">Vendor</div>
+                                  <div className="detail-value">
+                                    {vendorName(header.vendor_id)}
+                                  </div>
+                                </div>
+
+                                <div className="detail-row">
+                                  <div className="detail-label">Mode of Payment</div>
+                                  <div className="detail-value">
+                                    {header.mode_of_payment}
+                                  </div>
+                                </div>
+
+                                <div className="detail-row">
+                                  <div className="detail-label">
+                                    Purchase Date & Time
+                                  </div>
+                                  <div className="detail-value">
+                                    {new Date(header.purchase_at).toLocaleString()}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="details-col">
+                                <div className="detail-row">
+                                  <div className="detail-label">Client</div>
+                                  <div className="detail-value">
+                                    {clientName(header.client_id)}
+                                  </div>
+                                </div>
+                                <div className="detail-row">
+                                  <div className="detail-label">Brief Description</div>
+                                  <div className="detail-value">
+                                    {header.description || (
+                                      <span className="muted">-</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Line items (read-only table) */}
+                            <div
+                              style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}
+                            >
+                              Line Items
+                            </div>
+                            <div className="card" style={{ padding: 12 }}>
+                              <div className="table-wrap">
+                                <table className="tbl">
+                                  <thead>
+                                    <tr>
+                                      <th>Product</th>
+                                      <th>Qty</th>
+                                      <th>Unit</th>
+                                      <th>Unit Price</th>
+                                      <th>Tax Rate</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {lines.length === 0 && (
+                                      <tr>
+                                        <td colSpan="5" className="muted center">
+                                          No items
+                                        </td>
+                                      </tr>
+                                    )}
+                                    {lines.map((ln, idx) => (
+                                      <tr key={idx}>
+                                        <td data-th="Product">{productName(ln.product_id)}</td>
+                                        <td data-th="Qty">{ln.quantity}</td>
+                                        <td data-th="Unit">{ln.unit}</td>
+                                        <td data-th="Unit Price">
+                                          {(() => {
+                                            const split = Number(ln.freight_charge_split || 0);
+                                            const qty = Number(ln.quantity || 0);
+                                            const perUnitFreight = qty > 0 ? split / qty : 0;
+                                            const totalPerUnit =
+                                              Number(ln.unit_price) + perUnitFreight;
+                                            return `${inr(totalPerUnit)} = (${inr(
+                                              ln.unit_price
+                                            )} + ${inr(perUnitFreight)})`;
+                                          })()}
+                                        </td>
+                                        <td data-th="Tax Rate">{ln.tax_rate}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            {/* Footer actions (view-only) */}
+                            <div
+                              className="purchase-view-actions margin-bottom"
+                              role="toolbar"
+                              aria-label="Purchase actions"
+                            >
+                              <button
+                                type="button"
+                                className="btn modal-btn"
+                                onClick={closeModal}
+                              >
+                                Close
+                              </button>
+
+                              {selected && !allDelivered && (
+                                <button
+                                  type="button"
+                                  className="btn modal-btn"
+                                  style={{ backgroundColor: "#2563eb", color: "white" }}
+                                  onClick={() => handleSetDeliverMode(true)}
+                                >
+                                  Mark as Delivered
+                                </button>
+                              )}
+
+                              {selected && (
+                                <>
+                                  {!preventMutations && (
+                                    <button
+                                      type="button"
+                                      className="btn modal-btn danger"
+                                      onClick={() => setConfirmOpen(true)}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                  {!preventMutations && (
+                                    <button
+                                      type="button"
+                                      className="btn modal-btn primary"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setIsEditing(true);
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          /* ---------- EDIT MODE (inputs) ---------- */
+                          <>
+                            {/* Header */}
+                            <div className="details-grid">
+                              <div className="details-col">
+                                {/* Vendor */}
+                                <label className="lbl">
+                                  <span className="lbl-text">Vendor *</span>
+                                  <SearchSelect
+                                    placeholder="Search vendor…"
+                                    options={vendors.map((v) => ({
+                                      id: v.id,
+                                      label: v.name,
+                                    }))}
+                                    valueId={header.vendor_id}
+                                    onChange={(opt) =>
+                                      setHeader({ ...header, vendor_id: opt?.id || "" })
+                                    }
+                                  />
+                                </label>
+
+                                <label className="lbl">
+                                  <span className="lbl-text">Mode of Payment</span>
+                                  <select
+                                    className="input"
+                                    value={header.mode_of_payment}
+                                    onChange={(e) =>
+                                      setHeader({
+                                        ...header,
+                                        mode_of_payment: e.target.value,
+                                      })
+                                    }
+                                    required
+                                  >
+                                    {MOP_OPTIONS.map((m) => (
+                                      <option key={m} value={m}>
+                                        {m}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="lbl">
+                                  <span className="lbl-text">Purchase Date &amp; Time</span>
+                                  <input
+                                    className="input"
+                                    type="datetime-local"
+                                    value={header.purchase_at}
+                                    onChange={(e) =>
+                                      setHeader({
+                                        ...header,
+                                        purchase_at: e.target.value,
+                                      })
+                                    }
+                                    required
+                                  />
+                                </label>
+                              </div>
+
+                              <div className="details-col">
+                                {/* Client */}
+                                <label className="lbl">
+                                  <span className="lbl-text">Client (optional)</span>
+                                  <SearchSelect
+                                    placeholder="Search client…"
+                                    options={clients.map((c) => ({
+                                      id: c.id,
+                                      label: c.name,
+                                    }))}
+                                    valueId={header.client_id}
+                                    onChange={(opt) =>
+                                      setHeader({ ...header, client_id: opt?.id || "" })
+                                    }
+                                  />
+                                </label>
+
+                                <label className="lbl">
+                                  <span className="lbl-text">Brief Description</span>
+                                  <input
+                                    className="input input--sm"
+                                    maxLength={160}
+                                    placeholder="Brief description…"
+                                    value={header.description}
+                                    onChange={(e) =>
+                                      setHeader({ ...header, description: e.target.value })
+                                    }
+                                  />
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Line items (editable) */}
+                            <div
+                              style={{ marginTop: 12, marginBottom: 8, fontWeight: 700 }}
+                            >
+                              Line Items
+                            </div>
+                            <div className="card" style={{ padding: 12 }}>
+                              <div className="line-head">
+                                <div>Product</div>
+                                <div>Qty</div>
+                                <div>Unit</div>
+                                <div>Unit Price</div>
+                                <div>Tax Rate</div>
+                                <div></div>
+                              </div>
+
+                              {lines.map((ln, idx) => (
+                                <div key={idx} className="line-row">
+                                  <SearchSelect
+                                    placeholder="Search product…"
+                                    options={products.map((p) => ({
+                                      id: p.id,
+                                      label: p.name,
+                                    }))}
+                                    valueId={ln.product_id}
+                                    onChange={(opt) => onProductChange(idx, opt)}
+                                  />
+
+                                  <input
+                                    className="input"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.001"
+                                    placeholder="Qty"
+                                    value={ln.quantity}
+                                    onChange={(e) =>
+                                      setLine(idx, { quantity: e.target.value })
+                                    }
+                                    required
+                                  />
+
+                                  <input
+                                    className="input"
+                                    placeholder="Unit"
+                                    value={ln.unit}
+                                    onChange={(e) => setLine(idx, { unit: e.target.value })}
+                                    required
+                                  />
+
+                                  <input
+                                    className="input"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.01"
+                                    placeholder="Unit Price"
+                                    value={ln.unit_price}
+                                    onChange={(e) =>
+                                      setLine(idx, { unit_price: e.target.value })
+                                    }
+                                    required
+                                  />
+
+                                  <select
+                                    className="input"
+                                    value={ln.tax_rate}
+                                    onChange={(e) =>
+                                      setLine(idx, { tax_rate: e.target.value })
+                                    }
+                                    required
+                                  >
+                                    {TAX_OPTIONS.map((t) => (
+                                      <option key={t} value={t}>
+                                        {t}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <button
+                                    type="button"
+                                    className="btn danger"
+                                    onClick={() => removeLine(idx)}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))}
+
+                              <div style={{ marginTop: 8 }}>
+                                <button type="button" className="btn" onClick={addLine}>
+                                  + Add Line
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Footer actions (edit mode) */}
+                            <div className="modal-actions between" style={{ marginTop: 12 }}>
+                              <button
+                                type="button"
+                                className="btn modal-btn"
+                                onClick={() => {
+                                  if (selected) {
+                                    setIsEditing(false);
+                                    openView(selected);
+                                  } else {
+                                    closeModal();
+                                  }
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <div className="modal-footer margin-bottom ">
+                                {selected && (
+                                  <button
+                                    type="button"
+                                    className="btn danger modal-btn"
+                                    onClick={() => setConfirmOpen(true)}
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                                <button
+                                  type="submit"
+                                  className="btn primary width-100 modal-btn"
+                                >
+                                  {selected ? "Save Changes" : "Create"}
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </form>
+                </div>
+
+                {confirmOpen && selected && (
+                  <div className="confirm">
+                    <div className="confirm-card">
+                      <div className="confirm-title">Delete Purchase?</div>
+                      <p className="confirm-text">
+                        This cannot be undone. Remove{" "}
+                        <b>{selected.purchase_id}</b>?
+                      </p>
+                      <div className="confirm-actions">
+                        <button
+                          className="btn modal-btn"
+                          onClick={() => setConfirmOpen(false)}
+                        >
+                          Cancel
+                        </button>
+                        <button className="btn danger modal-btn" onClick={confirmDelete}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ====== DEMAND VIEW ====== */}
+        {view === VIEW_TABS.DEMAND && (
+          <>
+            <div className="demand-bar">
+              <div className="demand-bar__controls">
+                {/* Search by product name */}
+                <div className="search-box" style={{ flex: '1', minWidth: '200px' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="Search by product name..."
+                    value={demandSearch}
+                    onChange={(e) => setDemandSearch(e.target.value)}
+                  />
+                </div>
+
+                {/* Client filter dropdown */}
+                <div className="filter-dropdown" style={{ minWidth: '200px' }}>
+                  <select
+                    className="input"
+                    value={selectedClientId}
+                    onChange={(e) => setSelectedClientId(e.target.value || '')}
+                  >
+                    <option value="">All Clients</option>
+                    <option value="no-client">No Client (Generic)</option>
+                    {allClients.map(client => (
+                      <option key={client.id} value={client.id}>
+                        {client.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Clear filters button */}
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setDemandSearch('');
+                    setSelectedClientId('');
+                    setDemandHideCovered(false);
+                  }}
+                  style={{ marginLeft: 'auto' }}
+                >
+                  Clear Filters
+                </button>
+
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="table-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Client</th>
+                      <th className="right">Undelivered Qty</th>
+                      <th>Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {demandLoading ? (
+                      <tr>
+                        <td colSpan="4" className="muted center">Loading…</td>
+                      </tr>
+                    ) : filteredDemandRows.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="muted center">
+                          {demandRows.length === 0 ? 'No undelivered purchases' : 'No matching items found'}
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedDemandRows.map((r, i) => (
+                        <tr key={`${r.product_id}-${r.client_id || "NULL"}-${i}`}>
+                          <td data-th="Product">{r.product_name}</td>
+                          <td data-th="Client">{r.client_name}</td>
+                          <td data-th="Undelivered Qty" className="right">
+                            {Number(r.purchased).toLocaleString("en-IN")}
+                          </td>
+                          <td data-th="Unit">{r.unit}</td>
+                        </tr>
+                      )))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {filteredDemandRows.length > 0 && (
+                <div className="pager">
+                  <div className="muted">
+                    Showing {demandFrom + 1} to {Math.min(demandTo, filteredDemandRows.length)} of {filteredDemandRows.length} • Page {demandPage} of {demandTotalPages}
+                  </div>
+                  <div className="pager-controls">
+                    <button
+                      className="btn"
+                      onClick={goToPrevDemandPage}
+                      disabled={demandPage <= 1}
+                    >
+                      Prev
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={goToNextDemandPage}
+                      disabled={demandPage >= demandTotalPages}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Scoped styles for the tabs (re-using your dashboard look) */}
+        <style>{`
+          .tabs {
+            display: inline-flex;
+            gap: 6px;
+            padding: 4px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff;
+          }
+          .tab-btn {
+            appearance: none;
+            border: 1px solid transparent;
+            background: transparent;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--muted);
+          }
+          .tab-btn[aria-selected="true"] {
+            background: var(--card);
+            color: var(--text);
+            border-color: var(--border);
+            box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+          }
+        `}</style>
+      </div>
+    </NavFrame>
   );
 }
 

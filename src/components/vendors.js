@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import "../styles/clients.css";
+import NavFrame from "./nav";
 
 const EMPTY_M = {
     name: "",
@@ -179,144 +180,146 @@ export default function Vendors() {
         : "Add Vendor";
 
     return (
-        <div className="wrap">
-            <header className="bar">
-                <h1 className="title">Vendors</h1>
-                <button className="btn primary modal-btn" onClick={openAdd}>+ Add Vendor</button>
-            </header>
+        <NavFrame>
+            <div className="wrap">
+                <header className="bar">
+                    <h1 className="title">Vendors</h1>
+                    <button className="btn primary modal-btn" onClick={openAdd}>+ Add Vendor</button>
+                </header>
 
-            <div className="toolbar" style={{ display: "block" }}>
-                <input
-                    className="input"
-                    placeholder="Search by name…"
-                    value={search}
-                    onChange={(e) => { setPage(1); setSearch(e.target.value); }}
-                />
-            </div>
+                <div className="toolbar" style={{ display: "block" }}>
+                    <input
+                        className="input"
+                        placeholder="Search by name…"
+                        value={search}
+                        onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+                    />
+                </div>
 
-            <div className="card">
-                <div className="table-wrap">
-                    <table className="tbl">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Contact</th>
-                                <th>Secondary Contact</th>
-                                <th>Address</th>
-                                <th>Status</th>
-                                <th className="right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-                            {!loading && rows.length === 0 && <tr><td colSpan="7" className="muted center">No vendors found</td></tr>}
-                            {!loading && rows.map((r) => (
-                                <tr key={r.id}>
-                                    <td data-th="Name">{r.name}</td>
-                                    <td data-th="Contact">{r.contact || "-"}</td>
-                                    <td data-th="Secondary Contact">{r.secondary_contact || "-"}</td>
-                                    <td className="truncate" data-th="Address">{r.address || "-"}</td>
-                                    <td data-th="Status">
-                                        <span className={`status ${r.active ? "status--active" : "status--inactive"}`}>
-                                            <span className="dot" />
-                                            {r.active ? "Active" : "Inactive"}
-                                        </span>
-                                    </td>
-                                    <td className="right" data-th="Actions">
-                                        <button className="btn ghost" onClick={() => openView(r)}>View</button>
-                                    </td>
+                <div className="card">
+                    <div className="table-wrap">
+                        <table className="tbl">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Contact</th>
+                                    <th>Secondary Contact</th>
+                                    <th>Address</th>
+                                    <th>Status</th>
+                                    <th className="right">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
+                                {!loading && rows.length === 0 && <tr><td colSpan="7" className="muted center">No vendors found</td></tr>}
+                                {!loading && rows.map((r) => (
+                                    <tr key={r.id}>
+                                        <td data-th="Name">{r.name}</td>
+                                        <td data-th="Contact">{r.contact || "-"}</td>
+                                        <td data-th="Secondary Contact">{r.secondary_contact || "-"}</td>
+                                        <td className="truncate" data-th="Address">{r.address || "-"}</td>
+                                        <td data-th="Status">
+                                            <span className={`status ${r.active ? "status--active" : "status--inactive"}`}>
+                                                <span className="dot" />
+                                                {r.active ? "Active" : "Inactive"}
+                                            </span>
+                                        </td>
+                                        <td className="right" data-th="Actions">
+                                            <button className="btn ghost" onClick={() => openView(r)}>View</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
 
-                <div className="pager">
-                    <div className="muted">{count} total • Page {page} of {totalPages}</div>
-                    <div className="pager-controls">
-                        <button className="btn" onClick={goPrev} disabled={page <= 1}>Prev</button>
-                        <button className="btn" onClick={goNext} disabled={page >= totalPages}>Next</button>
+                    <div className="pager">
+                        <div className="muted">{count} total • Page {page} of {totalPages}</div>
+                        <div className="pager-controls">
+                            <button className="btn" onClick={goPrev} disabled={page <= 1}>Prev</button>
+                            <button className="btn" onClick={goNext} disabled={page >= totalPages}>Next</button>
+                        </div>
                     </div>
                 </div>
+
+                {modalOpen && (
+                    <div className="modal">
+                        <div className="modal-card modal-card--lg">
+                            <div className="modal-head">
+                                <h2 className="modal-title">{modalTitle}</h2>
+                                <button className="btn icon" onClick={closeModal} aria-label="Close">×</button>
+                            </div>
+
+                            <form onSubmit={handleSave}>
+                                <div className="details-grid">
+                                    <div className="details-col">
+                                        <DetailRow label="Name" edit={isEditing} value={form.name}
+                                            onChange={(v) => setForm({ ...form, name: v })} required />
+                                        <DetailRow label="Contact" edit={isEditing} value={form.contact}
+                                            onChange={(v) => setForm({ ...form, contact: v })} />
+                                        <DetailRow label="Secondary Contact" edit={isEditing} value={form.secondary_contact}
+                                            onChange={(v) => setForm({ ...form, secondary_contact: v })} />
+                                        <DetailRow label="Active" edit={isEditing} type="checkbox"
+                                            checked={!!form.active}
+                                            onChangeChecked={(c) => setForm({ ...form, active: c })}
+                                            value={form.active ? "Yes" : "No"} />
+                                    </div>
+
+                                    <div className="details-col">
+                                        <DetailRow label="Address" edit={isEditing} type="textarea"
+                                            value={form.address}
+                                            onChange={(v) => setForm({ ...form, address: v })} />
+                                        <DetailRow label="Notes" edit={isEditing} type="textarea"
+                                            value={form.notes}
+                                            onChange={(v) => setForm({ ...form, notes: v })} />
+                                        <DetailRow label="GSTIN" edit={isEditing} value={form.gstin}
+                                            onChange={(v) => setForm({ ...form, gstin: v })} />
+                                    </div>
+                                </div>
+
+                                <div className="modal-actions between">
+                                    {!isEditing ? (
+                                        <>
+                                            {selected && <button type="button" className="btn modal-btn" onClick={() => setIsEditing(true)}>Edit</button>}
+                                            {selected && <button type="button" className="btn danger modal-btn" onClick={() => setConfirmOpen(true)}>Remove</button>}
+                                            {!selected && <span className="muted">Fill details and click “Create”.</span>}
+                                            <div />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button type="button" className="btn modal-btn" onClick={() => {
+                                                if (selected) { setIsEditing(false); openView(selected); }
+                                                else { closeModal(); }
+                                            }}>
+                                                Cancel
+                                            </button>
+                                            <button type="submit" className="btn modal-btn primary">
+                                                {selected ? "Save Changes" : "Create"}
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </form>
+                        </div>
+
+                        {confirmOpen && selected && (
+                            <div className="confirm">
+                                <div className="confirm-card">
+                                    <div className="confirm-title">Delete Vendor?</div>
+                                    <p className="confirm-text">
+                                        This action cannot be undone. Remove <b>{selected.name}</b>?
+                                    </p>
+                                    <div className="confirm-actions">
+                                        <button className="btn modal-btn" onClick={() => setConfirmOpen(false)}>Cancel</button>
+                                        <button className="btn modal-btn danger" onClick={confirmDelete}>Delete</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
-
-            {modalOpen && (
-                <div className="modal">
-                    <div className="modal-card modal-card--lg">
-                        <div className="modal-head">
-                            <h2 className="modal-title">{modalTitle}</h2>
-                            <button className="btn icon" onClick={closeModal} aria-label="Close">×</button>
-                        </div>
-
-                        <form onSubmit={handleSave}>
-                            <div className="details-grid">
-                                <div className="details-col">
-                                    <DetailRow label="Name" edit={isEditing} value={form.name}
-                                        onChange={(v) => setForm({ ...form, name: v })} required />
-                                    <DetailRow label="Contact" edit={isEditing} value={form.contact}
-                                        onChange={(v) => setForm({ ...form, contact: v })} />
-                                    <DetailRow label="Secondary Contact" edit={isEditing} value={form.secondary_contact}
-                                        onChange={(v) => setForm({ ...form, secondary_contact: v })} />
-                                    <DetailRow label="Active" edit={isEditing} type="checkbox"
-                                        checked={!!form.active}
-                                        onChangeChecked={(c) => setForm({ ...form, active: c })}
-                                        value={form.active ? "Yes" : "No"} />
-                                </div>
-
-                                <div className="details-col">
-                                    <DetailRow label="Address" edit={isEditing} type="textarea"
-                                        value={form.address}
-                                        onChange={(v) => setForm({ ...form, address: v })} />
-                                    <DetailRow label="Notes" edit={isEditing} type="textarea"
-                                        value={form.notes}
-                                        onChange={(v) => setForm({ ...form, notes: v })} />
-                                    <DetailRow label="GSTIN" edit={isEditing} value={form.gstin}
-                                        onChange={(v) => setForm({ ...form, gstin: v })} />
-                                </div>
-                            </div>
-
-                            <div className="modal-actions between">
-                                {!isEditing ? (
-                                    <>
-                                        {selected && <button type="button" className="btn modal-btn" onClick={() => setIsEditing(true)}>Edit</button>}
-                                        {selected && <button type="button" className="btn danger modal-btn" onClick={() => setConfirmOpen(true)}>Remove</button>}
-                                        {!selected && <span className="muted">Fill details and click “Create”.</span>}
-                                        <div />
-                                    </>
-                                ) : (
-                                    <>
-                                        <button type="button" className="btn modal-btn" onClick={() => {
-                                            if (selected) { setIsEditing(false); openView(selected); }
-                                            else { closeModal(); }
-                                        }}>
-                                            Cancel
-                                        </button>
-                                        <button type="submit" className="btn modal-btn primary">
-                                            {selected ? "Save Changes" : "Create"}
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        </form>
-                    </div>
-
-                    {confirmOpen && selected && (
-                        <div className="confirm">
-                            <div className="confirm-card">
-                                <div className="confirm-title">Delete Vendor?</div>
-                                <p className="confirm-text">
-                                    This action cannot be undone. Remove <b>{selected.name}</b>?
-                                </p>
-                                <div className="confirm-actions">
-                                    <button className="btn modal-btn" onClick={() => setConfirmOpen(false)}>Cancel</button>
-                                    <button className="btn modal-btn danger" onClick={confirmDelete}>Delete</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
+        </NavFrame>
     );
 }
 

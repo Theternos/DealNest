@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import "../styles/clients.css";
+import NavFrame from "./nav";
 
 const EMPTY_CLIENT = {
     name: "",
@@ -184,6 +185,7 @@ export default function Clients() {
     const modalTitle = selected ? (isEditing ? "Edit Client" : "Client Details") : "Add Client";
 
     return (
+        <NavFrame>
         <div className="wrap">
             <header className="bar">
                 <h1 className="title">Clients</h1>
@@ -425,6 +427,7 @@ export default function Clients() {
                 </div>
             )}
         </div>
+        </NavFrame>
     );
 }
 
