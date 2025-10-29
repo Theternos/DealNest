@@ -199,6 +199,70 @@ function numberToWords(num) {
   return result.trim();
 }
 
+// Session Storage helpers with 5-minute expiry
+const SESSION_STORAGE_KEYS = {
+  SALES_FORM: 'sales_form_data',
+  SALES_FORM_TIMESTAMP: 'sales_form_timestamp'
+};
+
+const EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+function saveFormToSession(header, lines) {
+  try {
+    const formData = {
+      header,
+      lines,
+      timestamp: Date.now()
+    };
+    sessionStorage.setItem(SESSION_STORAGE_KEYS.SALES_FORM, JSON.stringify(formData));
+    sessionStorage.setItem(SESSION_STORAGE_KEYS.SALES_FORM_TIMESTAMP, Date.now().toString());
+  } catch (error) {
+    console.warn('Failed to save form data to session storage:', error);
+  }
+}
+
+function loadFormFromSession() {
+  try {
+    const timestamp = sessionStorage.getItem(SESSION_STORAGE_KEYS.SALES_FORM_TIMESTAMP);
+
+    // Check if data is expired
+    if (timestamp && Date.now() - parseInt(timestamp) > EXPIRY_TIME) {
+      clearFormSession();
+      return null;
+    }
+
+    const formData = sessionStorage.getItem(SESSION_STORAGE_KEYS.SALES_FORM);
+    if (formData) {
+      return JSON.parse(formData);
+    }
+  } catch (error) {
+    console.warn('Failed to load form data from session storage:', error);
+    clearFormSession();
+  }
+  return null;
+}
+
+function clearFormSession() {
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEYS.SALES_FORM);
+    sessionStorage.removeItem(SESSION_STORAGE_KEYS.SALES_FORM_TIMESTAMP);
+  } catch (error) {
+    console.warn('Failed to clear form data from session storage:', error);
+  }
+}
+
+function hasSavedFormData() {
+  try {
+    const timestamp = sessionStorage.getItem(SESSION_STORAGE_KEYS.SALES_FORM_TIMESTAMP);
+    if (timestamp && Date.now() - parseInt(timestamp) <= EXPIRY_TIME) {
+      return sessionStorage.getItem(SESSION_STORAGE_KEYS.SALES_FORM) !== null;
+    }
+  } catch (error) {
+    console.warn('Failed to check saved form data:', error);
+  }
+  return false;
+}
+
 export default function Sales() {
   // list + pagination
   const [rows, setRows] = useState([]);
@@ -244,6 +308,35 @@ export default function Sales() {
   // form
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [lines, setLines] = useState([{ ...EMPTY_LINE }]);
+
+  // Check if form has significant data (more than 2 fields with data)
+  const hasSignificantData = useMemo(() => {
+    // Count fields in header that have data
+    let filledFieldsCount = 0;
+
+    // Check header fields (excluding sale_at which always has a default value)
+    if (header.client_id && header.client_id.trim() !== "") filledFieldsCount++;
+    if (header.description && header.description.trim() !== "") filledFieldsCount++;
+    if (header.delivery_at && header.delivery_at.trim() !== "") filledFieldsCount++;
+
+    // Check line items
+    lines.forEach(line => {
+      if (line.product_id && line.product_id.trim() !== "") filledFieldsCount++;
+      if (line.quantity && line.quantity.toString().trim() !== "") filledFieldsCount++;
+      if (line.unit && line.unit.trim() !== "") filledFieldsCount++;
+      if (line.unit_price && line.unit_price.toString().trim() !== "") filledFieldsCount++;
+      if (line.tax_rate && line.tax_rate !== "Tax Exemption") filledFieldsCount++;
+    });
+
+    return filledFieldsCount > 2;
+  }, [header, lines]);
+
+  // Auto-save to session storage when form changes
+  useEffect(() => {
+    if (isEditing && modalOpen) {
+      saveFormToSession(header, lines);
+    }
+  }, [header, lines, isEditing, modalOpen]);
 
   // fetch refs
   useEffect(() => {
@@ -336,8 +429,17 @@ export default function Sales() {
   // open modal
   async function openAdd() {
     setSelected(null);
-    setHeader({ ...EMPTY_HEADER, sale_at: istNowInput(), with_tax: false });
-    setLines([{ ...EMPTY_LINE }]);
+
+    // Try to load saved form data from session storage
+    const savedForm = loadFormFromSession();
+    if (savedForm && savedForm.header && savedForm.lines) {
+      setHeader({ ...savedForm.header });
+      setLines([...savedForm.lines]);
+    } else {
+      setHeader({ ...EMPTY_HEADER, sale_at: istNowInput(), with_tax: false });
+      setLines([{ ...EMPTY_LINE }]);
+    }
+
     setIsEditing(true);
     setModalOpen(true);
     setClientOrders([]);
@@ -383,6 +485,18 @@ export default function Sales() {
     setClientOrders([]);
     setSelectedOrderId("");
     setOrderItemsSnapshot([]);
+
+    // DON'T clear session storage when modal is closed via Cancel
+    // Data persists for 5 minutes
+  }
+
+  // Clear all form data and session storage
+  function clearAllFormData() {
+    setHeader({ ...EMPTY_HEADER, sale_at: istNowInput(), with_tax: false });
+    setLines([{ ...EMPTY_LINE }]);
+    setSelectedOrderId("");
+    setOrderItemsSnapshot([]);
+    clearFormSession();
   }
 
   // line ops
@@ -605,6 +719,9 @@ export default function Sales() {
         setSelected(created);
         setIsEditing(false);
       }
+
+      // Clear session storage after successful submission
+      clearFormSession();
     } catch (err) {
       console.error("Error in sale creation:", err);
       alert("Failed to create sale: " + (err.message || "Unknown error"));
@@ -1819,6 +1936,11 @@ export default function Sales() {
                     <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Grand Total: <b>{inr(totals.grand)}</b></div>
                   </div>
                   <div className="modal-actions margin-bottom">
+                    {hasSignificantData && (
+                      <button type="button" className="btn danger modal-btn width-100" onClick={clearAllFormData}>
+                        Clear All
+                      </button>
+                    )}
                     <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
                     <button type="submit" className="btn primary modal-btn">Create</button>
                   </div>

@@ -183,6 +183,64 @@ async function generateOrderCode() {
     return `${prefix}${String(nextNum).padStart(6, "0")}`;
 }
 
+/** ---------- Session Storage Helpers ---------- **/
+const SESSION_STORAGE_KEYS = {
+    ORDER_FORM: 'order_form_data',
+    ORDER_FORM_TIMESTAMP: 'order_form_timestamp'
+};
+
+// 5 minutes in milliseconds
+const SESSION_EXPIRY = 5 * 60 * 1000;
+
+function saveFormToSession(header, lines) {
+    try {
+        const formData = {
+            header: { ...header },
+            lines: lines.map(line => ({ ...line }))
+        };
+        const timestamp = Date.now();
+
+        sessionStorage.setItem(SESSION_STORAGE_KEYS.ORDER_FORM, JSON.stringify(formData));
+        sessionStorage.setItem(SESSION_STORAGE_KEYS.ORDER_FORM_TIMESTAMP, timestamp.toString());
+    } catch (error) {
+        console.warn('Failed to save form data to session storage:', error);
+    }
+}
+
+function getFormFromSession() {
+    try {
+        const storedData = sessionStorage.getItem(SESSION_STORAGE_KEYS.ORDER_FORM);
+        const storedTimestamp = sessionStorage.getItem(SESSION_STORAGE_KEYS.ORDER_FORM_TIMESTAMP);
+
+        if (!storedData || !storedTimestamp) {
+            return null;
+        }
+
+        const timestamp = parseInt(storedTimestamp, 10);
+        const now = Date.now();
+
+        // Check if data is expired
+        if (now - timestamp > SESSION_EXPIRY) {
+            clearSessionForm();
+            return null;
+        }
+
+        return JSON.parse(storedData);
+    } catch (error) {
+        console.warn('Failed to retrieve form data from session storage:', error);
+        return null;
+    }
+}
+
+function clearSessionForm() {
+    try {
+        sessionStorage.removeItem(SESSION_STORAGE_KEYS.ORDER_FORM);
+        sessionStorage.removeItem(SESSION_STORAGE_KEYS.ORDER_FORM_TIMESTAMP);
+    } catch (error) {
+        console.warn('Failed to clear session storage:', error);
+    }
+}
+
 /** ---------- UI constants ---------- **/
 const TAX_OPTIONS = ["Tax Exemption", "2.5%", "5%", "12%", "18%"];
 
@@ -248,6 +306,14 @@ export default function Orders() {
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [pendingAction, setPendingAction] = useState(null);
     const [dialogMessage, setDialogMessage] = useState('');
+
+    // Add auto-save effect for form data
+    useEffect(() => {
+        if (isEditing && modalOpen) {
+            // Only auto-save when in editing mode and modal is open
+            saveFormToSession(header, lines);
+        }
+    }, [header, lines, isEditing, modalOpen]);
 
     // Add this function to handle the confirmation
     const handleConfirmAction = async () => {
@@ -394,11 +460,21 @@ export default function Orders() {
     // open modal
     async function openAdd() {
         setSelected(null);
-        setHeader({ ...EMPTY_HEADER, order_at: istNowInput(), status: "Pending" });
-        setLines([{ ...EMPTY_LINE }]);
+
+        // Try to load from session storage
+        const savedForm = getFormFromSession();
+        if (savedForm) {
+            setHeader({ ...savedForm.header });
+            setLines(savedForm.lines.map(line => ({ ...line })));
+        } else {
+            setHeader({ ...EMPTY_HEADER, order_at: istNowInput(), status: "Pending" });
+            setLines([{ ...EMPTY_LINE }]);
+        }
+
         setIsEditing(true);
         setModalOpen(true);
     }
+
     async function openView(row) {
         setSelected(row);
         setHeader({
@@ -416,6 +492,7 @@ export default function Orders() {
         setIsEditing(false);
         setModalOpen(true);
     }
+
     function closeModal() {
         setModalOpen(false);
         setSelected(null);
@@ -423,6 +500,49 @@ export default function Orders() {
         setHeader(EMPTY_HEADER);
         setLines([{ ...EMPTY_LINE }]);
     }
+
+    // Clear all form data and session storage
+    function clearAllFormData() {
+        setHeader({ ...EMPTY_HEADER, order_at: istNowInput(), status: "Pending" });
+        setLines([{ ...EMPTY_LINE }]);
+        clearSessionForm();
+    }
+
+    // Check if form has significant data
+    const hasSignificantData = useMemo(() => {
+        // Check if any line has data
+        const hasLineData = lines.some(line => 
+            line.product_id || 
+            line.quantity || 
+            line.unit || 
+            line.unit_price || 
+            line.tax_rate !== "Tax Exemption"
+        );
+        
+        // Check if header has significant data (excluding default values)
+        const hasHeaderData = 
+            header.client_id || 
+            (header.description && header.description.trim() !== '') ||
+            header.status !== "Pending" ||
+            header.order_at !== istNowInput();
+            
+        // Count filled fields
+        const filledFields = [
+            header.client_id ? 1 : 0,
+            header.description?.trim() ? 1 : 0,
+            header.status !== "Pending" ? 1 : 0,
+            header.order_at !== istNowInput() ? 1 : 0,
+            ...lines.flatMap(line => [
+                line.product_id ? 1 : 0,
+                line.quantity ? 1 : 0,
+                line.unit ? 1 : 0,
+                line.unit_price ? 1 : 0,
+                line.tax_rate !== "Tax Exemption" ? 1 : 0
+            ])
+        ].reduce((sum, val) => sum + val, 0);
+        
+        return filledFields > 2;
+    }, [header, lines]);
 
     // line ops
     function addLine() {
@@ -833,6 +953,9 @@ export default function Orders() {
 
         await fetchOrders();
 
+        // Clear session storage on successful save
+        clearSessionForm();
+
         const fresh = await reloadOrderById(created.id);
         if (fresh) { await openView(fresh); } else { setSelected(created); setIsEditing(false); }
     }
@@ -1207,6 +1330,16 @@ export default function Orders() {
                                         <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Estimated Total: <b>{inr(totals.grand)}</b></div>
                                     </div>
                                     <div className="modal-actions margin-bottom">
+                                        {hasSignificantData && (
+                                            <button 
+                                                type="button" 
+                                                className="btn danger modal-btn width-100" 
+                                                onClick={clearAllFormData}
+                                                style={{marginRight: 'auto'}}
+                                            >
+                                                Clear All
+                                            </button>
+                                        )}
                                         <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
                                         <button type="submit" className="btn primary modal-btn">Create</button>
                                     </div>

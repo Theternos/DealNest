@@ -66,6 +66,91 @@ const VIEW_TABS = {
   DEMAND: "DEMAND",
 };
 
+// Session storage keys and helpers
+const SESSION_KEYS = {
+  PURCHASE_HEADER: "purchase_form_header",
+  PURCHASE_LINES: "purchase_form_lines",
+  TIMESTAMP: "purchase_form_timestamp"
+};
+
+const SESSION_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
+function saveToSessionStorage(header, lines) {
+  const data = {
+    header,
+    lines,
+    timestamp: Date.now()
+  };
+  try {
+    sessionStorage.setItem(SESSION_KEYS.PURCHASE_HEADER, JSON.stringify(header));
+    sessionStorage.setItem(SESSION_KEYS.PURCHASE_LINES, JSON.stringify(lines));
+    sessionStorage.setItem(SESSION_KEYS.TIMESTAMP, data.timestamp.toString());
+  } catch (error) {
+    console.warn("Failed to save to session storage:", error);
+  }
+}
+
+function loadFromSessionStorage() {
+  try {
+    const timestamp = sessionStorage.getItem(SESSION_KEYS.TIMESTAMP);
+    if (!timestamp) return null;
+
+    const now = Date.now();
+    if (now - parseInt(timestamp) > SESSION_EXPIRY_MS) {
+      clearSessionStorage();
+      return null;
+    }
+
+    const header = sessionStorage.getItem(SESSION_KEYS.PURCHASE_HEADER);
+    const lines = sessionStorage.getItem(SESSION_KEYS.PURCHASE_LINES);
+
+    if (header && lines) {
+      return {
+        header: JSON.parse(header),
+        lines: JSON.parse(lines)
+      };
+    }
+  } catch (error) {
+    console.warn("Failed to load from session storage:", error);
+  }
+  return null;
+}
+
+function clearSessionStorage() {
+  try {
+    sessionStorage.removeItem(SESSION_KEYS.PURCHASE_HEADER);
+    sessionStorage.removeItem(SESSION_KEYS.PURCHASE_LINES);
+    sessionStorage.removeItem(SESSION_KEYS.TIMESTAMP);
+  } catch (error) {
+    console.warn("Failed to clear session storage:", error);
+  }
+}
+
+function hasFormData(header, lines) {
+  // Check if header has any non-empty fields (excluding purchase_at which is always set)
+  const headerFields = Object.entries(header).filter(([key]) => key !== 'purchase_at');
+  const hasHeaderData = headerFields.some(([key, value]) => {
+    if (key === 'vendor_id' || key === 'client_id') {
+      return value !== "";
+    }
+    return value !== "" && value !== EMPTY_HEADER[key];
+  });
+
+  // Check if lines have any data beyond the first empty line
+  const hasLinesData = lines.some((line, index) => {
+    if (index === 0 && lines.length === 1) {
+      // For single line, check if any field has data
+      return Object.values(line).some(value =>
+        value !== "" &&
+        value !== EMPTY_LINE[Object.keys(EMPTY_LINE)[Object.values(EMPTY_LINE).indexOf(value)]]
+      );
+    }
+    return true;
+  });
+
+  return hasHeaderData || hasLinesData || lines.length > 1;
+}
+
 export default function Purchases() {
   /** ========== Tab state ========== */
   const [view, setView] = useState(
@@ -101,6 +186,8 @@ export default function Purchases() {
   const [filterVendorId, setFilterVendorId] = useState("");
   const [filterClientId, setFilterClientId] = useState("");
   const [filterDelivered, setFilterDelivered] = useState("Any"); // Any / All Delivered / Any Undelivered
+  // add near your other state
+  const [purchaseFilter, setPurchaseFilter] = useState(''); // '', 'fully', 'partial', 'none'
 
   // modal (history tab)
   const [modalOpen, setModalOpen] = useState(false);
@@ -114,27 +201,22 @@ export default function Purchases() {
   const [deliverAll, setDeliverAll] = useState(false);
   const [freightCharge, setFreightCharge] = useState("");
 
-  // Set up delivery mode with all items selected by default
-  const handleSetDeliverMode = (value) => {
-    setDeliverMode(value);
-    if (value) {
-      // When entering deliver mode, select all undelivered items by default
-      const selected = {};
-      undeliveredLines.forEach((line) => {
-        selected[line.id] = true;
-      });
-      setDeliverSelected(selected);
-      setDeliverAll(undeliveredLines.length > 0);
-    } else {
-      // When exiting deliver mode, clear selections
-      setDeliverSelected({});
-      setDeliverAll(false);
-    }
-  };
-
   // form
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [lines, setLines] = useState([{ ...EMPTY_LINE }]);
+
+  // Save to session storage whenever header or lines change in edit mode
+  useEffect(() => {
+    if (modalOpen && isEditing && !selected) {
+      saveToSessionStorage(header, lines);
+    }
+  }, [header, lines, modalOpen, isEditing, selected]);
+
+  // Check if form has data for Clear All button
+  const hasFormDataState = useMemo(() =>
+    hasFormData(header, lines),
+    [header, lines]
+  );
 
   const allDelivered = useMemo(
     () => lines.length > 0 && lines.every((l) => !!l.delivered),
@@ -278,14 +360,54 @@ export default function Purchases() {
     setPage(1);
   }
 
+  // Clear all form fields
+  const clearAllFields = () => {
+    setHeader({
+      ...EMPTY_HEADER,
+      purchase_at: formatForDatetimeLocalIST(),
+    });
+    setLines([{ ...EMPTY_LINE }]);
+    clearSessionStorage();
+  };
+
+  // Set up delivery mode with all items selected by default
+  const handleSetDeliverMode = (value) => {
+    setDeliverMode(value);
+    if (value) {
+      // When entering deliver mode, select all undelivered items by default
+      const selected = {};
+      undeliveredLines.forEach((line) => {
+        selected[line.id] = true;
+      });
+      setDeliverSelected(selected);
+      setDeliverAll(undeliveredLines.length > 0);
+    } else {
+      // When exiting deliver mode, clear selections
+      setDeliverSelected({});
+      setDeliverAll(false);
+    }
+  };
+
   // openers
   function openAdd() {
     setSelected(null);
-    setHeader({
-      ...EMPTY_HEADER,
-      purchase_at: formatForDatetimeLocalIST(), // IST now
-    });
-    setLines([{ ...EMPTY_LINE }]);
+
+    // Load from session storage if available
+    const savedData = loadFromSessionStorage();
+    if (savedData) {
+      setHeader({
+        ...savedData.header,
+        purchase_at: savedData.header.purchase_at || formatForDatetimeLocalIST(),
+      });
+      setLines(savedData.lines.length > 0 ? savedData.lines : [{ ...EMPTY_LINE }]);
+    } else {
+      setHeader({
+        ...EMPTY_HEADER,
+        purchase_at: formatForDatetimeLocalIST(),
+      });
+      setLines([{ ...EMPTY_LINE }]);
+    }
+
     setIsEditing(true);
     setConfirmOpen(false);
     setDeliverMode(false);
@@ -335,6 +457,11 @@ export default function Purchases() {
     setFreightCharge("");
     setHeader(EMPTY_HEADER);
     setLines([{ ...EMPTY_LINE }]);
+
+    // Clear session storage when modal closes if not creating new purchase
+    if (!isEditing || selected) {
+      clearSessionStorage();
+    }
   }
 
   // lines
@@ -557,6 +684,8 @@ export default function Purchases() {
       // because computing deltas vs. previous state is non-trivial.
     }
 
+    // Clear session storage on successful save
+    clearSessionStorage();
     await fetchPurchases();
     closeModal();
   }
@@ -756,15 +885,26 @@ export default function Purchases() {
     setDemandLoading(true);
 
     try {
-      // Get undelivered purchase items only (simplified demand view)
+      // Fetch ordered quantities (per product/client)
+      const { data: orderInvRows, error: eOrderInv } = await supabase
+        .from("order_inventory")
+        .select("product_id, client_id, qty_available");
+      if (eOrderInv) throw eOrderInv;
+
+      // Fetch available inventory (per product/client, can have multiple vendor rows)
+      const { data: invRows, error: eInv } = await supabase
+        .from("inventory")
+        .select("product_id, client_id, qty_available");
+      if (eInv) throw eInv;
+
+      // Fetch undelivered purchase items
       const { data: piRows, error: ePI } = await supabase
         .from("purchase_items")
         .select("id, purchase_id, product_id, quantity, delivered")
         .eq("delivered", false);
-
       if (ePI) throw ePI;
 
-      // Fetch parent purchases to get client_id and check deleted status
+      // Fetch parent purchases (to get client_id and deleted flag)
       const purchaseIds = Array.from(new Set((piRows || []).map((r) => r.purchase_id)));
       let purchasesMap = {};
       if (purchaseIds.length) {
@@ -772,89 +912,173 @@ export default function Purchases() {
           .from("purchases")
           .select("id, client_id, deleted")
           .in("id", purchaseIds);
-        if (ePur) throw ePur;
-        purchasesMap = Object.fromEntries((purRows || []).map((p) => [p.id, p]));
+        if (!ePur) {
+          purchasesMap = Object.fromEntries((purRows || []).map((p) => [p.id, p]));
+        }
       }
 
-      // Build demand rows from undelivered purchase items
-      const rows = [];
-      const productGroups = {};
+      // Use existing maps if present; otherwise fetch actives
+      let localProductMap = productMap;
+      let localClientMap = clientMap;
 
-      // Group by product and client
+      if (Object.keys(productMap).length === 0) {
+        const { data: productsData, error: eProd } = await supabase
+          .from("products")
+          .select("id, name, unit, product_type")
+          .eq("active", true);
+        if (!eProd && productsData) {
+          localProductMap = Object.fromEntries(
+            productsData.map((p) => [
+              p.id,
+              { name: p.name, unit: p.unit, product_type: p.product_type },
+            ])
+          );
+        }
+      }
+
+      if (Object.keys(clientMap).length === 0) {
+        const { data: clientsData, error: eClient } = await supabase
+          .from("clients")
+          .select("id, name")
+          .eq("active", true);
+        if (!eClient && clientsData) {
+          localClientMap = Object.fromEntries(clientsData.map((c) => [c.id, c.name]));
+        }
+      }
+
+      // ==== SUM by (product_id|client_id) for both ordered and available ====
+      const orderInvMap = {};
+      for (const item of orderInvRows || []) {
+        const key = `${item.product_id}|${item.client_id || "null"}`;
+        const qty = Number(item.qty_available || 0);
+        orderInvMap[key] = (orderInvMap[key] || 0) + qty;
+      }
+
+      const invMap = {};
+      for (const item of invRows || []) {
+        const key = `${item.product_id}|${item.client_id || "null"}`;
+        const qty = Number(item.qty_available || 0);
+        invMap[key] = (invMap[key] || 0) + qty; // sum across vendors / rows
+      }
+
+      // Build undelivered purchases map (already summed)
+      const purchasedUndeliveredMap = {};
       for (const item of piRows || []) {
         const parent = purchasesMap[item.purchase_id];
         if (!parent || parent.deleted) continue;
-
-        const pMeta = productMap[item.product_id];
-        if (!pMeta) continue;
-
-        const key = `${item.product_id}-${parent.client_id || 'generic'}`;
-        if (!productGroups[key]) {
-          productGroups[key] = {
-            product_id: item.product_id,
-            product_name: pMeta.name || "(Unknown product)",
-            client_id: parent.client_id,
-            client_name: parent.client_id ? clientMap[parent.client_id] || "(Unknown client)" : "-",
-            unit: pMeta.unit || "",
-            purchased: 0,
-          };
-        }
-        productGroups[key].purchased += Number(item.quantity || 0);
+        const key = `${item.product_id}|${parent.client_id || "null"}`;
+        purchasedUndeliveredMap[key] = (purchasedUndeliveredMap[key] || 0) + Number(item.quantity || 0);
       }
 
-      // Convert to array and filter out zero quantities
-      const demandData = Object.values(productGroups).filter(r => r.purchased > 0);
+      // Build rows
+      const demandData = [];
+      const allKeys = new Set([
+        ...Object.keys(orderInvMap),
+        ...Object.keys(invMap),
+        ...Object.keys(purchasedUndeliveredMap),
+      ]);
 
-      // Store all clients for filter dropdown
+      for (const key of allKeys) {
+        const ordered = orderInvMap[key] || 0;
+        const available = invMap[key] || 0;
+        const purchased_undelivered = purchasedUndeliveredMap[key] || 0;
+
+        // Visibility: keep rows until ordered - available is 0 (ignore undelivered POs)
+        const raw_demand = Math.max(ordered - available, 0);
+        if (raw_demand <= 0) continue;
+
+        // Displayed demand (never negative)
+        const demand = Math.max(ordered - available - purchased_undelivered, 0);
+
+        const [product_id, client_id_str] = key.split("|");
+        const client_id = client_id_str === "null" ? null : client_id_str;
+
+        const pMeta = localProductMap[product_id];
+        if (!pMeta) continue;
+
+        // Purchase coverage status
+        let purchase_status = "none"; // not purchased
+        if (purchased_undelivered >= raw_demand && raw_demand > 0) {
+          purchase_status = "fully";
+        } else if (purchased_undelivered > 0 && purchased_undelivered < raw_demand) {
+          purchase_status = "partial";
+        }
+
+        demandData.push({
+          product_id,
+          product_name: pMeta.name || "(Unknown product)",
+          client_id,
+          client_name: client_id ? localClientMap[client_id] || "(Unknown client)" : "-",
+          unit: pMeta.unit || "",
+          ordered,
+          available,
+          purchased_undelivered,
+          demand,        // non-negative displayed value
+          raw_demand,    // used to decide visibility / coverage calc
+          purchase_status, // 'none' | 'partial' | 'fully'
+        });
+      }
+
+      // For client filter dropdown
       const clientSet = new Set();
-      demandData.forEach(row => {
+      demandData.forEach((row) => {
         if (row.client_id) {
           clientSet.add(JSON.stringify({ id: row.client_id, name: row.client_name }));
         }
       });
-      setAllClients(Array.from(clientSet).map(str => JSON.parse(str)));
+      setAllClients(Array.from(clientSet).map((str) => JSON.parse(str)));
 
-      // Apply filters and update state
-      applyDemandFilters(demandData, demandHideCovered, demandSearch, selectedClientId);
+      // Push to state and apply filters (includes purchaseFilter)
       setDemandRows(demandData);
+      applyDemandFilters(
+        demandData,
+        demandHideCovered,
+        demandSearch,
+        selectedClientId,
+        purchaseFilter
+      );
     } catch (err) {
-      console.error("loadDemand error:", err);
       setDemandRows([]);
+      setFilteredDemandRows([]);
     } finally {
       setDemandLoading(false);
     }
   }
 
-  // Apply filters to demand rows
-  const applyDemandFilters = (rows, hideCovered, searchTerm, clientId) => {
+
+
+  function applyDemandFilters(rows, hideCovered, searchTerm, clientId, purchaseState) {
     let filtered = [...(rows || [])];
 
-    // Apply search term filter (case-insensitive)
+    // Product name search
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(r =>
-        r.product_name.toLowerCase().includes(term)
+      filtered = filtered.filter((r) => r.product_name.toLowerCase().includes(term));
+    }
+
+    // Client filter
+    if (clientId) {
+      filtered = filtered.filter((r) =>
+        clientId === "no-client" ? !r.client_id : r.client_id === clientId
       );
     }
 
-    // Apply client filter
-    if (clientId) {
-      filtered = filtered.filter(r =>
-        clientId === 'no-client' ? !r.client_id : r.client_id === clientId
-      );
+    // Purchase status filter: '', 'none', 'partial', 'fully'
+    if (purchaseState) {
+      filtered = filtered.filter((r) => r.purchase_status === purchaseState);
     }
 
     setFilteredDemandRows(filtered);
-    // Reset to first page when filters change
-    setDemandPage(1);
-  };
+    setDemandPage(1); // reset pagination on filter change
+  }
 
-  // Update filters when dependencies change
+
+
+
   useEffect(() => {
-    applyDemandFilters(demandRows, demandHideCovered, demandSearch, selectedClientId);
-  }, [demandRows, demandHideCovered, demandSearch, selectedClientId]);
+    applyDemandFilters(demandRows, demandHideCovered, demandSearch, selectedClientId, purchaseFilter);
+  }, [demandRows, demandHideCovered, demandSearch, selectedClientId, purchaseFilter]);
 
-  // Load demand data when view changes
   useEffect(() => {
     if (view === VIEW_TABS.DEMAND) {
       loadDemand();
@@ -1507,6 +1731,25 @@ export default function Purchases() {
 
                             {/* Footer actions (edit mode) */}
                             <div className="modal-actions between" style={{ marginTop: 12 }}>
+                              {!selected && hasFormDataState && (
+                                <button
+                                  type="button"
+                                  className="btn modal-btn danger width-100"
+                                  onClick={clearAllFields}
+                                  style={{ marginRight: '8px' }}
+                                >
+                                  Clear All
+                                </button>
+                              )}
+                              {selected && (
+                                <button
+                                  type="button"
+                                  className="btn danger modal-btn width-100"
+                                  onClick={() => setConfirmOpen(true)}
+                                >
+                                  Remove
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="btn modal-btn"
@@ -1521,16 +1764,7 @@ export default function Purchases() {
                               >
                                 Cancel
                               </button>
-                              <div className="modal-footer margin-bottom ">
-                                {selected && (
-                                  <button
-                                    type="button"
-                                    className="btn danger modal-btn"
-                                    onClick={() => setConfirmOpen(true)}
-                                  >
-                                    Remove
-                                  </button>
-                                )}
+                              <div className="modal-footer margin-bottom">
                                 <button
                                   type="submit"
                                   className="btn primary width-100 modal-btn"
@@ -1606,6 +1840,22 @@ export default function Purchases() {
                   </select>
                 </div>
 
+                {/* Purchase status filter */}
+                <div className="filter-dropdown" style={{ minWidth: '200px' }}>
+                  <select
+                    className="input"
+                    value={purchaseFilter}
+                    onChange={(e) => setPurchaseFilter(e.target.value)}
+                    title="Filter by purchase coverage"
+                  >
+                    <option value="">All Purchase States</option>
+                    <option value="none">Not purchased</option>
+                    <option value="partial">Partially purchased</option>
+                    <option value="fully">Fully purchased</option>
+                  </select>
+                </div>
+
+
                 {/* Clear filters button */}
                 <button
                   className="btn"
@@ -1613,12 +1863,13 @@ export default function Purchases() {
                     setDemandSearch('');
                     setSelectedClientId('');
                     setDemandHideCovered(false);
+                    setPurchaseFilter(''); // NEW
+
                   }}
                   style={{ marginLeft: 'auto' }}
                 >
                   Clear Filters
                 </button>
-
               </div>
             </div>
 
@@ -1629,19 +1880,21 @@ export default function Purchases() {
                     <tr>
                       <th>Product</th>
                       <th>Client</th>
-                      <th className="right">Undelivered Qty</th>
+                      <th className="right">Available Qty</th>
+                      <th className="right">Purchased (Undelivered)</th>
+                      <th className="right">Demand</th>
                       <th>Unit</th>
                     </tr>
                   </thead>
                   <tbody>
                     {demandLoading ? (
                       <tr>
-                        <td colSpan="4" className="muted center">Loading…</td>
+                        <td colSpan="6" className="muted center">Loading…</td>
                       </tr>
                     ) : filteredDemandRows.length === 0 ? (
                       <tr>
-                        <td colSpan="4" className="muted center">
-                          {demandRows.length === 0 ? 'No undelivered purchases' : 'No matching items found'}
+                        <td colSpan="6" className="muted center">
+                          {demandRows.length === 0 ? 'No demand (all orders covered)' : 'No matching items found'}
                         </td>
                       </tr>
                     ) : (
@@ -1649,8 +1902,14 @@ export default function Purchases() {
                         <tr key={`${r.product_id}-${r.client_id || "NULL"}-${i}`}>
                           <td data-th="Product">{r.product_name}</td>
                           <td data-th="Client">{r.client_name}</td>
-                          <td data-th="Undelivered Qty" className="right">
-                            {Number(r.purchased).toLocaleString("en-IN")}
+                          <td data-th="Available Qty" className="right">
+                            {Number(r.available).toLocaleString("en-IN")}
+                          </td>
+                          <td data-th="Purchased (Undelivered)" className="right" style={{ color: '#0984e3' }}>
+                            {Number(r.purchased_undelivered).toLocaleString("en-IN")}
+                          </td>
+                          <td data-th="Demand" className="right" style={{ fontWeight: 'bold', color: '#d63031' }}>
+                            {Number(r.demand).toLocaleString("en-IN")}
                           </td>
                           <td data-th="Unit">{r.unit}</td>
                         </tr>

@@ -25,6 +25,53 @@ const EMPTY_PRODUCT = {
   category: "Packages"
 };
 
+// Session storage keys
+const SESSION_STORAGE_KEY = "products_form_data";
+const SESSION_TIMESTAMP_KEY = "products_form_timestamp";
+const EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+// Helper functions for session storage
+const saveFormToSession = (formData) => {
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(formData));
+    sessionStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
+  } catch (error) {
+    console.warn("Failed to save form data to session storage:", error);
+  }
+};
+
+const getFormFromSession = () => {
+  try {
+    const timestamp = sessionStorage.getItem(SESSION_TIMESTAMP_KEY);
+    const formData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+
+    if (!timestamp || !formData) return null;
+
+    const now = Date.now();
+    const storedTime = parseInt(timestamp, 10);
+
+    // Check if data is expired
+    if (now - storedTime > EXPIRY_TIME) {
+      clearSessionStorage();
+      return null;
+    }
+
+    return JSON.parse(formData);
+  } catch (error) {
+    console.warn("Failed to retrieve form data from session storage:", error);
+    return null;
+  }
+};
+
+const clearSessionStorage = () => {
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(SESSION_TIMESTAMP_KEY);
+  } catch (error) {
+    console.warn("Failed to clear session storage:", error);
+  }
+};
+
 export default function Products() {
   // Table state
   const [rows, setRows] = useState([]);
@@ -35,6 +82,7 @@ export default function Products() {
   // UI state
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [showClearAll, setShowClearAll] = useState(false);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -79,10 +127,47 @@ export default function Products() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search]);
 
+  // Load form data from session storage when component mounts
+  useEffect(() => {
+    const savedForm = getFormFromSession();
+    if (savedForm) {
+      setForm(savedForm);
+    }
+  }, []);
+
+  // Check if we should show the Clear All button
+  useEffect(() => {
+    if (!modalOpen) return;
+    
+    const filledFields = Object.entries(form).filter(([key, value]) => {
+      // Skip the 'active' field as it's a boolean
+      if (key === 'active') return false;
+      // Consider the field filled if it has a truthy value
+      return Boolean(value);
+    }).length;
+    
+    setShowClearAll(filledFields > 3);
+  }, [form, modalOpen]);
+
+  // Save form data to session storage whenever form changes
+  useEffect(() => {
+    if (modalOpen && isEditing) {
+      saveFormToSession(form);
+    }
+  }, [form, modalOpen, isEditing]);
+
   // Openers
   function openAdd() {
     setSelected(null);
-    setForm(EMPTY_PRODUCT);
+
+    // Try to load saved form data, otherwise use empty product
+    const savedForm = getFormFromSession();
+    if (savedForm) {
+      setForm(savedForm);
+    } else {
+      setForm(EMPTY_PRODUCT);
+    }
+
     setIsEditing(true);
     setConfirmOpen(false);
     setModalOpen(true);
@@ -98,8 +183,8 @@ export default function Products() {
       unit: row.unit || "Pieces",
       description: row.description || "",
       active: !!row.active,
-      hsn_sac: row.hsn_sac || "",               // NEW
-      category: row.category || "Packages",      // NEW
+      hsn_sac: row.hsn_sac || "",
+      category: row.category || "Packages",
     });
     setIsEditing(false);
     setConfirmOpen(false);
@@ -111,7 +196,13 @@ export default function Products() {
     setSelected(null);
     setIsEditing(false);
     setConfirmOpen(false);
-    setForm(EMPTY_PRODUCT);
+
+    // Only clear the form if we're not in the middle of editing
+    // This allows data to persist when modal is closed and reopened
+    if (!isEditing) {
+      setForm(EMPTY_PRODUCT);
+      clearSessionStorage();
+    }
   }
 
   // Save (insert/update)
@@ -125,8 +216,8 @@ export default function Products() {
       selling_price:
         form.selling_price === "" ? null : Number(form.selling_price),
       description: form.description?.trim() || null,
-      hsn_sac: form.hsn_sac?.trim() || null,                    // NEW (optional)
-      category: form.category || null,                          // NEW
+      hsn_sac: form.hsn_sac?.trim() || null,
+      category: form.category || null,
     };
     if (!payload.name) {
       alert("Product name is required");
@@ -152,6 +243,8 @@ export default function Products() {
       }
     }
 
+    // Clear session storage on successful save
+    clearSessionStorage();
     await fetchData();
     closeModal();
   }
@@ -175,8 +268,17 @@ export default function Products() {
     } else {
       fetchData();
     }
+
+    // Clear session storage on delete
+    clearSessionStorage();
     closeModal();
   }
+
+  // Clear saved form data manually
+  const clearSavedForm = () => {
+    setForm(EMPTY_PRODUCT);
+    clearSessionStorage();
+  };
 
   // Pager controls
   function goPrev() {
@@ -191,6 +293,9 @@ export default function Products() {
       ? "Edit Product"
       : "Product Details"
     : "Add Product";
+
+  // Check if we have saved form data
+  const hasSavedForm = getFormFromSession() !== null;
 
   return (
     <NavFrame>
@@ -220,8 +325,8 @@ export default function Products() {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Category</th>{/* NEW */}
-                  <th>HSN/SAC</th>{/* NEW */}
+                  <th>Category</th>
+                  <th>HSN/SAC</th>
                   <th>Purchase Price</th>
                   <th>Selling Price</th>
                   <th>Tax Rate</th>
@@ -243,8 +348,8 @@ export default function Products() {
                 {!loading && rows.map((r) => (
                   <tr key={r.id}>
                     <td data-th="Name">{r.name}</td>
-                    <td data-th="Category">{r.category || "-"}</td>{/* NEW */}
-                    <td data-th="HSN/SAC">{r.hsn_sac || "-"}</td>{/* NEW */}
+                    <td data-th="Category">{r.category || "-"}</td>
+                    <td data-th="HSN/SAC">{r.hsn_sac || "-"}</td>
                     <td data-th="Purchase Price">
                       ₹{Number(r.purchase_price || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
                     </td>
@@ -370,11 +475,21 @@ export default function Products() {
                           </button>
                         </>
                       )}
-                      {!selected && <span className="muted">Fill details and click “Create”.</span>}
+                      {!selected && <span className="muted">Fill details and click "Create".</span>}
                       <div />
                     </>
                   ) : (
                     <>
+                      {showClearAll && (
+                        <button
+                          type="button"
+                          className="btn ghost modal-btn width-100 danger"
+                          onClick={clearSavedForm}
+                          style={{ fontSize: "0.875rem"}}
+                        >
+                          Clear All
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn modal-btn"

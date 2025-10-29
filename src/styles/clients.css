@@ -1421,30 +1421,31 @@ body {
 
 /* Order Action Buttons Container */
 .order-actions-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
-  margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    margin-top: 1rem;
 }
 
 /* Base button styles - using existing .btn class */
 .order-action-btn {
-  width: 100%;
-  text-align: center;
+    width: 100%;
+    text-align: center;
 }
 
 /* Desktop layout */
 @media (min-width: 768px) {
-  .order-actions-container {
-    flex-direction: row;
-    gap: 0.75rem;
-  }
-  
-  .order-action-btn {
-    flex: 1;
-  }
+    .order-actions-container {
+        flex-direction: row;
+        gap: 0.75rem;
+    }
+
+    .order-action-btn {
+        flex: 1;
+    }
 }
+
 /* Add your custom styles below */
 
 /* ----------- Mobile toolbar stacking ----------- */
@@ -2027,4 +2028,12 @@ body {
 /* Remove default arrow in IE */
 .demand-filter select::-ms-expand {
     display: none;
+}
+
+.text-success {
+    color: #16a34a;
+}
+
+.text-danger {
+    color: #dc2626;
 }
