@@ -134,7 +134,10 @@ function paginate(list, page, pageSize) {
 
 /** ---------- UI ---------- **/
 export default function Ledger() {
-    const isSalesUser = getSession()?.role === 'sales';
+    const session = getSession();
+    const isSalesUser = session?.role === 'sales';
+    const currentUsername = session?.username;
+    
     const [tab, setTab] = useState(isSalesUser ? "SALES" : "SALES"); // SALES | PURCHASES
     
     // Ensure sales users can't access purchases tab
@@ -202,13 +205,19 @@ export default function Ledger() {
         // date filter field for bills: sale_at / purchase_at
         const saleQuery = supabase
             .from("sales")
-            .select("id,sale_id,client_id,sale_at,with_tax,description")
+            .select("id,sale_id,client_id,sale_at,with_tax,description,created_by")
             .order("sale_at", { ascending: false });
 
         const purchaseQuery = supabase
             .from("purchases")
-            .select("id,purchase_id,vendor_id,purchase_at,description")
+            .select("id,purchase_id,vendor_id,purchase_at,description,created_by")
             .order("purchase_at", { ascending: false });
+
+        // Add user-based filtering for sales users
+        if (isSalesUser && currentUsername) {
+            saleQuery.eq("created_by", currentUsername);
+            purchaseQuery.eq("created_by", currentUsername);
+        }
 
         if (start && end) {
             saleQuery.gte("sale_at", start.toISOString()).lte("sale_at", end.toISOString());
@@ -276,6 +285,7 @@ export default function Ledger() {
                 description: s.description || "",
                 partyName: clients?.find(c => c.id === s.client_id)?.name || "-",
                 client_id: s.client_id, // keep for reference, though not required by new logic
+                created_by: s.created_by, // Add created_by for display if needed
                 items,
                 sub, tax, total, paid, balance,
             };
@@ -314,6 +324,7 @@ export default function Ledger() {
                 at: p.purchase_at,
                 description: p.description || "",
                 partyName: (vendors?.find(v => v.id === p.vendor_id)?.name) || "-",
+                created_by: p.created_by, // Add created_by for display if needed
                 items,
                 sub, tax, total, paid, balance,
             };
@@ -322,11 +333,23 @@ export default function Ledger() {
         setSales(salesEnriched);
         setPurchases(purchasesEnriched);
 
-        // transaction history (unchanged: global, no date filter)
-        const { data: tx } = await supabase
+        // transaction history - filter by user role for payments too
+        let paymentQuery = supabase
             .from("payments")
-            .select("id,kind,sale_id,purchase_id,amount,paid_at,notes,created_at")
+            .select("id,kind,sale_id,purchase_id,amount,paid_at,notes,created_at,created_by")
             .order("paid_at", { ascending: false });
+
+        // For sales users, filter payments to only show those related to their sales/purchases
+        if (isSalesUser && currentUsername) {
+            // Get IDs of sales and purchases created by this user
+            const userSaleIds = salesEnriched.map(s => s.id);
+            const userPurchaseIds = purchasesEnriched.map(p => p.id);
+            
+            paymentQuery = paymentQuery
+                .or(`sale_id.in.(${userSaleIds.join(',')}),purchase_id.in.(${userPurchaseIds.join(',')})`);
+        }
+
+        const { data: tx } = await paymentQuery;
         setPayments(tx || []);
 
         setLoading(false);
@@ -377,7 +400,7 @@ export default function Ledger() {
         setViewOpen(true);
     }
 
-    // >>>>> CHANGE ADDED HERE: update clients.credit on SALE receipt <<<<<
+    // >>>>> UPDATED: Include created_by in payment payload <<<<<
     async function savePayment(e) {
         e.preventDefault();
         if (!target) return;
@@ -391,6 +414,7 @@ export default function Ledger() {
             notes: pay.notes?.trim() || null,
             sale_id: target.kind === "SALE" ? target.id : null,
             purchase_id: target.kind === "PURCHASE" ? target.id : null,
+            created_by: currentUsername, // Add created_by with current username
         };
 
         // 1) insert payment
@@ -454,7 +478,14 @@ export default function Ledger() {
             <div className="wrap">
                 <header className="bar">
                     <h1 className="title">Ledger</h1>
-                    <div className="muted">Receivable Pending: <b>{inrFmt(totalReceivable)}</b> • Payable Pending: <b>{inrFmt(totalPayable)}</b></div>
+                    <div className="muted">
+                        Receivable Pending: <b>{inrFmt(totalReceivable)}</b> • Payable Pending: <b>{inrFmt(totalPayable)}</b>
+                        {isSalesUser && (
+                            <span style={{ marginLeft: '16px', fontSize: '0.9em', color: '#666' }}>
+                                (Viewing only your records)
+                            </span>
+                        )}
+                    </div>
                 </header>
 
                 {/* Tabs */}
@@ -536,6 +567,7 @@ export default function Ledger() {
                                         <th>Sale ID</th>
                                         <th>Client</th>
                                         <th>Date</th>
+                                        {!isSalesUser && <th>Created By</th>}
                                         <th className="right">Total</th>
                                         <th className="right">Paid</th>
                                         <th className="right">Balance</th>
@@ -543,13 +575,14 @@ export default function Ledger() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-                                    {!loading && salesPaged.total === 0 && <tr><td colSpan="7" className="muted center">No records</td></tr>}
+                                    {loading && <tr><td colSpan={isSalesUser ? "7" : "8"} className="muted center">Loading…</td></tr>}
+                                    {!loading && salesPaged.total === 0 && <tr><td colSpan={isSalesUser ? "7" : "8"} className="muted center">No records</td></tr>}
                                     {!loading && salesPaged.slice.map(r => (
                                         <tr key={r.id}>
                                             <td data-th="Sale ID">{r.code}</td>
                                             <td data-th="Client">{r.partyName}</td>
                                             <td data-th="Date">{new Date(r.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                            {!isSalesUser && <td data-th="Created By">{r.created_by || "-"}</td>}
                                             <td className="right" data-th="Total">{inrFmt(r.total)}</td>
                                             <td className="right" data-th="Paid">{inrFmt(r.paid)}</td>
                                             <td className="right" data-th="Balance" style={{ fontWeight: 600 }}>{inrFmt(r.balance)}</td>
@@ -579,6 +612,7 @@ export default function Ledger() {
                                         <th>Purchase ID</th>
                                         <th>Vendor</th>
                                         <th>Date</th>
+                                        {!isSalesUser && <th>Created By</th>}
                                         <th className="right">Total</th>
                                         <th className="right">Paid</th>
                                         <th className="right">Balance</th>
@@ -586,13 +620,14 @@ export default function Ledger() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-                                    {!loading && purchPaged.total === 0 && <tr><td colSpan="7" className="muted center">No records</td></tr>}
+                                    {loading && <tr><td colSpan={isSalesUser ? "7" : "8"} className="muted center">Loading…</td></tr>}
+                                    {!loading && purchPaged.total === 0 && <tr><td colSpan={isSalesUser ? "7" : "8"} className="muted center">No records</td></tr>}
                                     {!loading && purchPaged.slice.map(r => (
                                         <tr key={r.id}>
                                             <td data-th="Purchase ID">{r.code}</td>
                                             <td data-th="Vendor">{r.partyName}</td>
                                             <td data-th="Date">{new Date(r.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                            {!isSalesUser && <td data-th="Created By">{r.created_by || "-"}</td>}
                                             <td className="right" data-th="Total">{inrFmt(r.total)}</td>
                                             <td className="right" data-th="Paid">{inrFmt(r.paid)}</td>
                                             <td className="right" data-th="Balance" style={{ fontWeight: 600 }}>{inrFmt(r.balance)}</td>
@@ -652,15 +687,16 @@ export default function Ledger() {
                                     <th>Type</th>
                                     <th>Bill</th>
                                     <th>Date</th>
+                                    {!isSalesUser && <th>Created By</th>}
                                     <th className="right">Amount</th>
                                     <th>Notes</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {paysPaged.total === 0 ? (
-                                    <tr><td colSpan="5" className="muted center">No transactions</td></tr>
+                                    <tr><td colSpan={isSalesUser ? "5" : "6"} className="muted center">No transactions</td></tr>
                                 ) : paysPaged.slice.filter(t => !isSalesUser || t.kind !== "PURCHASE").length === 0 ? (
-                                    <tr><td colSpan="5" className="muted center">No transactions to display</td></tr>
+                                    <tr><td colSpan={isSalesUser ? "5" : "6"} className="muted center">No transactions to display</td></tr>
                                 ) : (
                                     paysPaged.slice
                                         .filter(t => !isSalesUser || t.kind !== "PURCHASE")
@@ -674,6 +710,7 @@ export default function Ledger() {
                                                     <td data-th="Type">{t.kind === "SALE" ? "Receipt" : "Payment"}</td>
                                                     <td data-th="Bill">{billCode} {party ? `• ${party}` : ""}</td>
                                                     <td data-th="Date">{new Date(t.paid_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                                    {!isSalesUser && <td data-th="Created By">{t.created_by || "-"}</td>}
                                                     <td
                                                         className={`right txn-amt ${t.kind === "SALE" ? "txn-amt--in" : "txn-amt--out"}`}
                                                         data-th="Amount"
@@ -773,6 +810,7 @@ export default function Ledger() {
                                     <div className="detail-row"><div className="detail-label">Party</div><div className="detail-value">{view.row.partyName}</div></div>
                                     <div className="detail-row"><div className="detail-label">Date</div><div className="detail-value">{new Date(view.row.at).toLocaleString("en-IN", { timeZone: IST_TZ })}</div></div>
                                     <div className="detail-row"><div className="detail-label">Description</div><div className="detail-value">{view.row.description || "-"}</div></div>
+                                    {!isSalesUser && <div className="detail-row"><div className="detail-label">Created By</div><div className="detail-value">{view.row.created_by || "-"}</div></div>}
                                     <div className="detail-row"><div className="detail-label">Balance</div><div className="detail-value" style={{ fontWeight: 700 }}>{inrFmt(view.row.balance)}</div></div>
                                 </div>
                                 <div className="details-col">
@@ -789,15 +827,17 @@ export default function Ledger() {
                                     <thead>
                                         <tr>
                                             <th>Date</th>
+                                            {!isSalesUser && <th>Created By</th>}
                                             <th className="right">Amount</th>
                                             <th>Notes</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {view.txns.length === 0 && <tr><td colSpan="3" className="muted center">No transactions</td></tr>}
+                                        {view.txns.length === 0 && <tr><td colSpan={isSalesUser ? "3" : "4"} className="muted center">No transactions</td></tr>}
                                         {view.txns.map(t => (
                                             <tr key={t.id}>
                                                 <td data-th="Date">{new Date(t.paid_at).toLocaleString("en-IN", { timeZone: IST_TZ })}</td>
+                                                {!isSalesUser && <td data-th="Created By">{t.created_by || "-"}</td>}
                                                 <td className="right" data-th="Amount">{inrFmt(t.amount)}</td>
                                                 <td data-th="Notes">{t.notes || "-"}</td>
                                             </tr>

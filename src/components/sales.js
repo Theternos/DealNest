@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import "../styles/clients.css";
 import b2bLogo from "../assets/b2b_logo.png"; // logo for invoice header
 import NavFrame from "./nav";
+import AddProductModal from './AddProductModal';
 
 /** ---------- IST (Asia/Kolkata) helpers ---------- **/
 const IST_TZ = "Asia/Kolkata";
@@ -125,6 +126,26 @@ function getPresetRangeIST(preset) {
     end.getTime() - end.getTimezoneOffset() * 60000
   ).toISOString();
   return { startISO, endISO };
+}
+
+/** ---------- Session helpers ---------- **/
+const STORAGE_KEY = "app.session";
+
+function getSession() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSessionValid(s) {
+  if (!s || !s.loggedIn) return false;
+  const now = Date.now();
+  const last = Number(s.lastActivity || s.loginAt || 0);
+  const INACTIVITY_MS = 60 * 60 * 1000; // 1 hour
+  return now - last < INACTIVITY_MS;
 }
 
 const TAX_OPTIONS = ["Tax Exemption", "2.5%", "5%", "12%", "18%"];
@@ -309,6 +330,11 @@ export default function Sales() {
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [lines, setLines] = useState([{ ...EMPTY_LINE }]);
 
+  // Get current user session
+  const session = getSession();
+  const userRole = session?.role;
+  const currentUsername = session?.username;
+
   // Check if form has significant data (more than 2 fields with data)
   const hasSignificantData = useMemo(() => {
     // Count fields in header that have data
@@ -330,6 +356,11 @@ export default function Sales() {
 
     return filledFieldsCount > 2;
   }, [header, lines]);
+
+  const handleProductAdded = (newProduct) => {
+    // Handle the new product - refresh data, show notification, etc.
+    console.log('New product created:', newProduct);
+  };
 
   // Auto-save to session storage when form changes
   useEffect(() => {
@@ -568,11 +599,17 @@ export default function Sales() {
   // list sales
   async function fetchSales() {
     setLoading(true);
+    
     let q = supabase
       .from("sales")
-      .select("id,sale_id,client_id,sale_at,with_tax,delivered,delivery_at,created_at,invoice_date,invoice_due_date,invoice_with_gst", { count: "exact" })
+      .select("id,sale_id,client_id,sale_at,with_tax,delivered,delivery_at,created_at,invoice_date,invoice_due_date,invoice_with_gst,created_by", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, to);
+
+    // If user is sales role, only show their sales
+    if (userRole === "sales" && currentUsername) {
+      q = q.eq("created_by", currentUsername);
+    }
 
     if (search.trim()) q = q.ilike("sale_id", `%${search.trim()}%`);
     if (filterClient) q = q.eq("client_id", filterClient);
@@ -630,6 +667,7 @@ export default function Sales() {
       description: header.description?.trim() || null,
       delivered: !!header.delivered,
       delivery_at: header.delivery_at ? istInputToUTCDate(header.delivery_at) : null,
+      created_by: currentUsername, // Add the username here
     };
 
     // Pre-compute total right now to apply to credit later
@@ -856,7 +894,7 @@ export default function Sales() {
   async function reloadSaleById(id) {
     const { data: s } = await supabase
       .from("sales")
-      .select("id,sale_id,client_id,sale_at,with_tax,delivered,delivery_at,created_at,invoice_date,invoice_due_date,invoice_with_gst")
+      .select("id,sale_id,client_id,sale_at,with_tax,delivered,delivery_at,created_at,invoice_date,invoice_due_date,invoice_with_gst,created_by")
       .eq("id", id)
       .single();
     return s || null;
@@ -906,7 +944,7 @@ export default function Sales() {
   async function openInvoiceTab(saleId) {
     const { data: sale, error: eSale } = await supabase
       .from("sales")
-      .select("id,sale_id,client_id,sale_at,with_tax,description,delivery_at,invoice_date,invoice_due_date,invoice_with_gst")
+      .select("id,sale_id,client_id,sale_at,with_tax,description,delivery_at,invoice_date,invoice_due_date,invoice_with_gst,created_by")
       .eq("id", saleId)
       .single();
     if (eSale || !sale) { alert("Unable to load sale"); console.error(eSale); return; }
@@ -1525,7 +1563,14 @@ export default function Sales() {
     <NavFrame>
       <div className="wrap">
         <header className="bar">
-          <h1 className="title">Sales</h1>
+          <div>
+            <h1 className="title">Sales</h1>
+            {userRole === "sales" && (
+              <div className="muted" style={{ fontSize: "12px", marginTop: "4px" }}>
+                Showing only your sales (Logged in as: {currentUsername})
+              </div>
+            )}
+          </div>
           <button className="btn primary modal-btn" onClick={openAdd}>+ Add Sale</button>
         </header>
 
@@ -1601,11 +1646,20 @@ export default function Sales() {
           <div className="table-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Sale ID</th><th>Client</th><th>Date</th><th>With Tax</th><th>Delivered</th><th>Delivery Date</th><th className="right">Actions</th></tr>
+                <tr>
+                  <th>Sale ID</th>
+                  <th>Client</th>
+                  <th>Date</th>
+                  <th>With Tax</th>
+                  <th>Delivered</th>
+                  <th>Delivery Date</th>
+                  {userRole === 'admin' && <th>Created By</th>}
+                  <th className="right">Actions</th>
+                </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan="7" className="muted center">Loading…</td></tr>}
-                {!loading && rows.length === 0 && <tr><td colSpan="7" className="muted center">No sales</td></tr>}
+                {loading && <tr><td colSpan="8" className="muted center">Loading…</td></tr>}
+                {!loading && rows.length === 0 && <tr><td colSpan="8" className="muted center">No sales</td></tr>}
                 {!loading && rows.map((r) => (
                   <tr key={r.id}>
                     <td data-th="Sale ID">{r.sale_id}</td>
@@ -1614,6 +1668,7 @@ export default function Sales() {
                     <td data-th="With Tax">{r.with_tax ? "Yes" : "No"}</td>
                     <td data-th="Delivered">{r.delivered ? "Yes" : "No"}</td>
                     <td data-th="Delivery Date">{r.delivery_at ? new Date(r.delivery_at).toLocaleString("en-IN", { timeZone: IST_TZ }) : "-"}</td>
+                    {userRole === 'admin' && <td data-th="Created By" className="muted">{r.created_by || "-"}</td>}
                     <td className="right" data-th="Actions"><button className="btn ghost" onClick={() => openView(r)}>View</button></td>
                   </tr>
                 ))}
@@ -1789,9 +1844,6 @@ export default function Sales() {
                         />
                       </label>
 
-                      {/* NEW: Active Orders dropdown */}
-
-
                       <label className="lbl">
                         <span className="lbl-text">Sale Date &amp; Time</span>
                         <input
@@ -1950,6 +2002,8 @@ export default function Sales() {
           </div>
         )}
       </div>
+      <AddProductModal onProductAdded={handleProductAdded} />
+
     </NavFrame>
   );
 }

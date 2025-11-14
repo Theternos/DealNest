@@ -5,6 +5,17 @@ import { createPortal } from "react-dom";
 import "../styles/clients.css";
 import NavFrame from "./nav";
 
+/** ---------- Session Helper ---------- **/
+const STORAGE_KEY = "app.session";
+function getSession() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
 /** ---------- IST (Asia/Kolkata) helpers ---------- **/
 const IST_TZ = "Asia/Kolkata";
 
@@ -264,6 +275,12 @@ const inr = (n) =>
     `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
 export default function Orders() {
+    // Get current user session
+    const session = getSession();
+    const currentUser = session?.username || 'unknown';
+    const userRole = session?.role || 'sales';
+    const isSalesUser = userRole === 'sales';
+
     // list + pagination
     const [rows, setRows] = useState([]);
     const [count, setCount] = useState(0);
@@ -511,21 +528,21 @@ export default function Orders() {
     // Check if form has significant data
     const hasSignificantData = useMemo(() => {
         // Check if any line has data
-        const hasLineData = lines.some(line => 
-            line.product_id || 
-            line.quantity || 
-            line.unit || 
-            line.unit_price || 
+        const hasLineData = lines.some(line =>
+            line.product_id ||
+            line.quantity ||
+            line.unit ||
+            line.unit_price ||
             line.tax_rate !== "Tax Exemption"
         );
-        
+
         // Check if header has significant data (excluding default values)
-        const hasHeaderData = 
-            header.client_id || 
+        const hasHeaderData =
+            header.client_id ||
             (header.description && header.description.trim() !== '') ||
             header.status !== "Pending" ||
             header.order_at !== istNowInput();
-            
+
         // Count filled fields
         const filledFields = [
             header.client_id ? 1 : 0,
@@ -540,7 +557,7 @@ export default function Orders() {
                 line.tax_rate !== "Tax Exemption" ? 1 : 0
             ])
         ].reduce((sum, val) => sum + val, 0);
-        
+
         return filledFields > 2;
     }, [header, lines]);
 
@@ -609,11 +626,16 @@ export default function Orders() {
         setLoading(true);
         let q = supabase
             .from("orders")
-            .select("id,order_code,client_id,order_at,status,description,created_at", {
+            .select("id,order_code,client_id,order_at,status,description,created_at,created_by", {
                 count: "exact",
             })
             .order("created_at", { ascending: false })
             .range(from, to);
+
+        // If user is sales, only show their own orders
+        if (isSalesUser) {
+            q = q.eq("created_by", currentUser);
+        }
 
         if (search.trim()) {
             // match code or description
@@ -880,7 +902,7 @@ export default function Orders() {
     async function reloadOrderById(id) {
         const { data: o } = await supabase
             .from("orders")
-            .select("id,order_code,client_id,order_at,status,description,created_at")
+            .select("id,order_code,client_id,order_at,status,description,created_at,created_by")
             .eq("id", id)
             .single();
         return o || null;
@@ -895,6 +917,9 @@ export default function Orders() {
             alert("Each line needs Product, Quantity, Unit and Unit Price"); return;
         }
 
+        // Get current session to extract username
+        const currentUsername = currentUser;
+
         // 1) Create order (with order_code generated in JS; retry on collision)
         let created = null;
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -906,6 +931,7 @@ export default function Orders() {
                 description: header.description?.trim() || null,
                 status: header.status || "Pending",
                 order_code,
+                created_by: currentUsername, // Add the username here
             };
 
             const res = await supabase.from("orders").insert([headerPayload]).select().single();
@@ -984,7 +1010,14 @@ export default function Orders() {
                 {showConfirmDialog && <ConfirmDialog />}
 
                 <header className="bar">
-                    <h1 className="title">Orders</h1>
+                    <h1 className="title">
+                        Orders
+                        {isSalesUser && (
+                            <span style={{ fontSize: '0.9rem', fontWeight: 'normal', color: '#666', marginLeft: '10px' }}>
+                                (My Orders Only)
+                            </span>
+                        )}
+                    </h1>
                     <button className="btn primary modal-btn" onClick={openAdd}>+ Create Order</button>
                 </header>
 
@@ -1067,13 +1100,13 @@ export default function Orders() {
                                     <th>Client</th>
                                     <th>Date</th>
                                     <th>Status</th>
-                                    <th>Description</th>
+                                    {!isSalesUser && <th>Created By</th>}
                                     <th className="right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {loading && <tr><td colSpan="6" className="muted center">Loading…</td></tr>}
-                                {!loading && rows.length === 0 && <tr><td colSpan="6" className="muted center">No orders</td></tr>}
+                                {loading && <tr><td colSpan={isSalesUser ? "6" : "7"} className="muted center">Loading…</td></tr>}
+                                {!loading && rows.length === 0 && <tr><td colSpan={isSalesUser ? "6" : "7"} className="muted center">No orders</td></tr>}
                                 {!loading && rows.map((r) => (
                                     <tr key={r.id}>
                                         <td data-th="Order Code">{r.order_code || "-"}</td>
@@ -1085,7 +1118,7 @@ export default function Orders() {
                                                     : "badge-ok"
                                                 }`}>{r.status}</span>
                                         </td>
-                                        <td data-th="Description" className="muted">{r.description || "-"}</td>
+                                        {!isSalesUser && <td data-th="Created By" className="muted">{r.created_by || "-"}</td>}
                                         <td className="right" data-th="Actions"><button className="btn ghost" onClick={() => openView(r)}>View</button></td>
                                     </tr>
                                 ))}
@@ -1136,10 +1169,12 @@ export default function Orders() {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className="detail-row">
-                                                <div className="detail-label">Description</div>
-                                                <div className="detail-value">{header.description || "-"}</div>
-                                            </div>
+                                            {!isSalesUser && (
+                                                <div className="detail-row">
+                                                    <div className="detail-label">Created By</div>
+                                                    <div className="detail-value">{selected?.created_by || "-"}</div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -1297,7 +1332,6 @@ export default function Orders() {
                                                             onChange={(e) => setLine(idx, { unit_price: e.target.value })}
                                                             required
                                                         />
-
                                                         <select
                                                             className="input uniform-input"
                                                             value={ln.tax_rate}
@@ -1307,41 +1341,10 @@ export default function Orders() {
                                                         >
                                                             {TAX_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                                                         </select>
-
-                                                        <button type="button" className="btn danger" onClick={() => removeLine(idx)}>Remove</button>
                                                     </div>
-
-                                                    {ln.product_id && header.client_id && (
-                                                        <div className="line-hint">
-                                                            Available (Inventory − Demand): <b>{availVal}</b>{" "}
-                                                            <span className="muted">({scopeLabel}; generic = no client binding)</span>
-                                                        </div>
-                                                    )}
                                                 </div>
-                                            );
+                                            )
                                         })}
-
-                                        <div style={{ marginTop: 8 }}>
-                                            <button type="button" className="btn" onClick={addLine}>+ Add Line</button>
-                                        </div>
-                                    </div>
-
-                                    <div className="modal-actions between margin-bottom" style={{ marginTop: 8 }}>
-                                        <div className="muted">Subtotal: {inr(totals.sub)} • Tax: {inr(totals.tax)} • Estimated Total: <b>{inr(totals.grand)}</b></div>
-                                    </div>
-                                    <div className="modal-actions margin-bottom">
-                                        {hasSignificantData && (
-                                            <button 
-                                                type="button" 
-                                                className="btn danger modal-btn width-100" 
-                                                onClick={clearAllFormData}
-                                                style={{marginRight: 'auto'}}
-                                            >
-                                                Clear All
-                                            </button>
-                                        )}
-                                        <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
-                                        <button type="submit" className="btn primary modal-btn">Create</button>
                                     </div>
                                 </form>
                             )}
@@ -1349,7 +1352,7 @@ export default function Orders() {
                     </div>
                 )}
             </div>
-        </NavFrame>
+        </NavFrame >
     );
 }
 

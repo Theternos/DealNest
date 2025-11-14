@@ -2,6 +2,8 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { getSession } from "./components/login";
+import { useKeyboardShortcuts } from './components/keyboardShortcuts';
+import AddProductModal from './components/AddProductModal';
 
 // pages
 import Products from "./components/products";
@@ -21,100 +23,113 @@ import "./App.css";
 function ProtectedRoute({ children, allowedRoles = [] }) {
   const location = useLocation();
   const session = getSession();
-  
+
   // If no session, redirect to login
   if (!session?.loggedIn) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
-  
+
   // If role is specified and user doesn't have it, redirect to home
   if (allowedRoles.length > 0 && !allowedRoles.includes(session.role)) {
     return <Navigate to="/sales" replace />;
   }
-  
+
   return children;
 }
 
 // Role-based route component
 function RoleBasedRoute({ children }) {
   const session = getSession();
-  
+
   // For sales users, redirect to /sales
   if (session?.role === 'sales') {
     return <Navigate to="/sales" replace />;
   }
-  
+
   // For other users, show the requested page
   return children;
 }
 
 
 export default function App() {
+  useKeyboardShortcuts();
+
+  const handleProductAdded = (newProduct) => {
+    console.log('Product added:', newProduct);
+    // Refresh your products list if needed
+    // You can trigger a custom event or use state management
+  };
+
   return (
+
     <BrowserRouter>
+      <AddProductModal
+        onProductAdded={handleProductAdded}
+        onClose={() => console.log('Modal closed')}
+      />
       <Routes>
         <Route path="/login" element={<Login />} />
-        
+
         <Route path="/" element={
           <RoleBasedRoute>
             <Navigate to="/dashboard" replace />
           </RoleBasedRoute>
         } />
-        
+
         <Route path="/dashboard" element={
           <ProtectedRoute allowedRoles={['admin', 'manager']}>
             <Dashboard />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/products" element={
           <ProtectedRoute>
             <Products />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/inventory" element={
           <ProtectedRoute>
             <Inventory />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/purchases" element={
           <ProtectedRoute allowedRoles={['admin', 'manager']}>
             <Purchases />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/sales" element={
           <ProtectedRoute>
             <Sales />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/ledger" element={
           <ProtectedRoute>
             <Ledger />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/parties" element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['admin', 'manager']}>
             <Parties />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/investments" element={
           <ProtectedRoute allowedRoles={['admin', 'manager']}>
             <Investments />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/orders" element={
           <ProtectedRoute>
             <Orders />
           </ProtectedRoute>
         } />
-        
+
         <Route path="*" element={<div style={{ padding: 24 }}>Not Found</div>} />
       </Routes>
     </BrowserRouter>

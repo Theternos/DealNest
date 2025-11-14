@@ -170,7 +170,9 @@ export default function NavFrame({ children }) {
           )}
           <NavLink to="/products" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} onClick={() => setOpen(false)}>Products</NavLink>
           <NavLink to="/inventory" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} onClick={() => setOpen(false)}>Inventory</NavLink>
-          <NavLink to="/parties" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} onClick={() => setOpen(false)}>Parties</NavLink>
+          {(!getSession()?.role || getSession()?.role !== 'sales') && (
+            <NavLink to="/parties" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} onClick={() => setOpen(false)}>Parties</NavLink>
+          )}
           <NavLink to="/ledger" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} onClick={() => setOpen(false)}>Ledger</NavLink>
           {(!getSession()?.role || getSession()?.role !== 'sales') && (
             <NavLink to="/investments" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} onClick={() => setOpen(false)}>Investments</NavLink>
@@ -205,7 +207,9 @@ export default function NavFrame({ children }) {
             )}
             <SideLink to="/products" icon={Ico.Products}>Products</SideLink>
             <SideLink to="/inventory" icon={Ico.Inventory}>Inventory</SideLink>
-            <SideLink to="/parties" icon={Ico.Parties}>Parties</SideLink>
+            {(!getSession()?.role || getSession()?.role !== 'sales') && (
+              <SideLink to="/parties" icon={Ico.Parties}>Parties</SideLink>
+            )}
             <SideLink to="/ledger" icon={Ico.Ledger}>Ledger</SideLink>
             {(!getSession()?.role || getSession()?.role !== 'sales') && (
               <SideLink to="/investments" icon={Ico.Investments}>Investments</SideLink>
