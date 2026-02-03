@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { createPortal } from "react-dom";
 import "../styles/clients.css";
 import NavFrame from "./nav";
+import { getSession } from "./login";
 
 const TAX_OPTIONS = ["Tax Exemption", "5%", "2.5%", "12%", "18%"];
 const MOP_OPTIONS = ["Cash", "Bank Transfer", "UPI"];
@@ -573,6 +574,12 @@ export default function Purchases() {
 
     if (!selected) {
       // ---------- CREATE ----------
+      // Add current user's name to created_by column
+      const session = getSession();
+      if (session?.name) {
+        headerPayload.created_by = session.name;
+      }
+      
       const { data: inserted, error: e1 } = await supabase
         .from("purchases")
         .insert([headerPayload])

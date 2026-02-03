@@ -110,7 +110,7 @@ function getPresetRange(preset) {
 /** ---------- Utils ---------- **/
 const fmtINR = (n) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number.isFinite(+n) ? +n : 0);
-const fmtQty = (n) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 }).format(+n || 0);
+// const fmtQty = (n) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 }).format(+n || 0);
 const sum = (arr) => arr.reduce((a, b) => a + (+b || 0), 0);
 
 /** Calculate efficiency metrics **/
