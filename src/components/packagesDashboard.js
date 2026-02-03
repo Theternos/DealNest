@@ -38,6 +38,7 @@ const PRESETS = [
   "Last Week",
   "This Month",
   "Last Month",
+  "Last 3 Months",
   "Last 30 Days",
   "This Year",
   "Last Year",
@@ -86,6 +87,11 @@ function getPresetRange(preset) {
       const Y = ref.getUTCFullYear(), M = ref.getUTCMonth();
       const lastDay = new Date(Date.UTC(Y, M + 1, 0)).getUTCDate();
       return { start: startOfISTDay(Y, M, 1), end: endOfISTDay(Y, M, lastDay) };
+    }
+    case "Last 3 Months": {
+      const endRef = endOfISTDay(y, m, d);
+      const startRef = new Date(endRef.getTime() - 89 * 24 * 3600 * 1000); // 90 days total including today
+      return { start: startRef, end: endRef };
     }
     case "Last 30 Days": {
       const endRef = endOfISTDay(y, m, d);
@@ -172,7 +178,7 @@ function calculateEfficiencyMetrics(salesData, purchasesData) {
 }
 
 export default function PackagesDashboard() {
-  const [preset, setPreset] = useState("This Month");
+  const [preset, setPreset] = useState("All Time");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [focusClientId, setFocusClientId] = useState("");

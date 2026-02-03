@@ -153,7 +153,7 @@ const TAX_OPTIONS = ["Tax Exemption", "2.5%", "5%", "12%", "18%"];
 const EMPTY_HEADER = {
   client_id: "",
   sale_at: istNowInput(),
-  with_tax: true,
+  with_tax: false, // Always set to false by default
   description: "",
   delivered: false,
   delivery_at: "",
@@ -410,6 +410,29 @@ export default function Sales() {
   const productMeta = (id) => products.find((x) => x.id === id);
   const inr = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
+  // Get tax rate from purchase_items for a product
+  async function getTaxRateFromPurchaseItems(productId) {
+    if (!productId) return "Tax Exemption";
+    
+    try {
+      const { data, error } = await supabase
+        .from("purchase_items")
+        .select("tax_rate")
+        .eq("product_id", productId)
+        .limit(1)
+        .single();
+      
+      if (error || !data) {
+        return "Tax Exemption";
+      }
+      
+      return data.tax_rate || "Tax Exemption";
+    } catch (err) {
+      console.warn("Error fetching tax rate from purchase_items:", err);
+      return "Tax Exemption";
+    }
+  }
+
   // inventory helpers using GROUPED map
   const genericKey = (product_id) => `${product_id}::NULL`;
   const clientKey = (product_id, cid) => `${product_id}::${cid}`;
@@ -535,19 +558,23 @@ export default function Sales() {
   function removeLine(idx) { setLines((arr) => arr.filter((_, i) => i !== idx)); }
   function setLine(idx, patch) { setLines((arr) => arr.map((ln, i) => (i === idx ? { ...ln, ...patch } : ln))); }
 
-  function onProductChange(idx, opt) {
+  async function onProductChange(idx, opt) {
     if (!opt) {
       setLine(idx, { product_id: "", from_bucket: "GENERIC", unit: "", unit_price: "", tax_rate: "Tax Exemption", max_qty: 0, quantity: "" });
       return;
     }
     const p = productMeta(opt.product_id);
     const max = availableFor(opt.product_id, header.client_id, opt.bucket);
+    
+    // Get tax rate from purchase_items table
+    const taxRate = await getTaxRateFromPurchaseItems(opt.product_id);
+    
     setLine(idx, {
       product_id: opt.product_id,
       from_bucket: opt.bucket,
       unit: p?.unit || "",
       unit_price: p?.selling_price ?? "",
-      tax_rate: p?.tax_rate || "Tax Exemption",
+      tax_rate: taxRate,
       max_qty: max,
       quantity: "",
     });
@@ -646,7 +673,7 @@ export default function Sales() {
   }
   useEffect(() => { fetchSales(); /* eslint-disable-next-line */ }, [page, search, filterClient, datePreset, customStart, customEnd, filterTax]);
 
-  // save (create)
+  // save (create or update)
   async function handleSubmit(e) {
     e.preventDefault();
     if (!header.client_id) { alert("Select client"); return; }
@@ -660,10 +687,11 @@ export default function Sales() {
       if (q <= 0 || q > max) { alert(`Quantity for "${productName(ln.product_id)}" exceeds available (${max}).`); return; }
     }
 
+    const isUpdate = selected && isEditing;
     const headerPayload = {
       client_id: header.client_id,
       sale_at: istInputToUTCDate(header.sale_at),
-      with_tax: false, // Always set to false by default
+      with_tax: header.with_tax, // Use the form value
       description: header.description?.trim() || null,
       delivered: !!header.delivered,
       delivery_at: header.delivery_at ? istInputToUTCDate(header.delivery_at) : null,
@@ -675,11 +703,33 @@ export default function Sales() {
 
     // Start transaction
     try {
-      // 1) Create sale
-      const { data: created, error: e1 } = await supabase.from("sales").insert([headerPayload]).select().single();
-      if (e1) throw new Error("Create sale failed: " + e1.message);
+      let created;
+      
+      if (isUpdate) {
+        // Update existing sale
+        const { data: updated, error: e1 } = await supabase
+          .from("sales")
+          .update(headerPayload)
+          .eq("id", selected.id)
+          .select()
+          .single();
+        if (e1) throw new Error("Update sale failed: " + e1.message);
+        created = updated;
+        
+        // Delete existing items and recreate them
+        const { error: deleteError } = await supabase
+          .from("sales_items")
+          .delete()
+          .eq("sale_id", selected.id);
+        if (deleteError) throw new Error("Delete existing items failed: " + deleteError.message);
+      } else {
+        // Create new sale
+        const { data: newSale, error: e1 } = await supabase.from("sales").insert([headerPayload]).select().single();
+        if (e1) throw new Error("Create sale failed: " + e1.message);
+        created = newSale;
+      }
 
-      // 2) Create items
+      // Create items (for both create and update)
       const items = lines.map((ln) => ({
         sale_id: created.id,
         product_id: ln.product_id,
@@ -691,61 +741,64 @@ export default function Sales() {
       const { error: e2 } = await supabase.from("sales_items").insert(items);
       if (e2) throw new Error("Create items failed: " + e2.message);
 
-      // 3) Deduct inventory
-      for (const ln of lines) {
-        const q = Number(ln.quantity);
-        const clientId = ln.from_bucket === "CLIENT" && header.client_id ? header.client_id : null;
+      // Only handle inventory and order updates for new sales (not updates)
+      if (!isUpdate) {
+        // 3) Deduct inventory
+        for (const ln of lines) {
+          const q = Number(ln.quantity);
+          const clientId = ln.from_bucket === "CLIENT" && header.client_id ? header.client_id : null;
 
-        // Update regular inventory
-        await decrementInventoryAcrossRows(ln.product_id, clientId, q);
-      }
-
-      // 4) Update order inventory and status ONLY if this sale is from an order
-      if (selectedOrderId) {
-        // Fetch the ordered items to get the exact quantities from the order
-        const { data: orderedItems, error: orderItemsError } = await supabase
-          .from("ordered_items")
-          .select("product_id, quantity")
-          .eq("order_id", selectedOrderId);
-
-        if (orderItemsError) throw new Error("Fetch ordered items failed: " + orderItemsError.message);
-
-        // Decrement order inventory for each product in the order
-        for (const item of orderedItems || []) {
-          const productId = item.product_id;
-          const orderQuantity = Number(item.quantity || 0);
-
-          if (orderQuantity > 0) {
-            await decrementOrderInventory(productId, header.client_id, orderQuantity);
-          }
+          // Update regular inventory
+          await decrementInventoryAcrossRows(ln.product_id, clientId, q);
         }
 
-        // 5) Update order status to Converted and set active to false
-        const { error: orderErr } = await supabase
-          .from("orders")
-          .update({ status: "Converted", active: false })
-          .eq("id", selectedOrderId);
+        // 4) Update order inventory and status ONLY if this sale is from an order
+        if (selectedOrderId) {
+          // Fetch the ordered items to get the exact quantities from the order
+          const { data: orderedItems, error: orderItemsError } = await supabase
+            .from("ordered_items")
+            .select("product_id, quantity")
+            .eq("order_id", selectedOrderId);
 
-        if (orderErr) throw new Error("Update order status failed: " + orderErr.message);
+          if (orderItemsError) throw new Error("Fetch ordered items failed: " + orderItemsError.message);
+
+          // Decrement order inventory for each product in the order
+          for (const item of orderedItems || []) {
+            const productId = item.product_id;
+            const orderQuantity = Number(item.quantity || 0);
+
+            if (orderQuantity > 0) {
+              await decrementOrderInventory(productId, header.client_id, orderQuantity);
+            }
+          }
+
+          // 5) Update order status to Converted and set active to false
+          const { error: orderErr } = await supabase
+            .from("orders")
+            .update({ status: "Converted", active: false })
+            .eq("id", selectedOrderId);
+
+          if (orderErr) throw new Error("Update order status failed: " + orderErr.message);
+        }
+
+        // 6) Update client's credit (add grand total of this sale)
+        const { data: cRow, error: cErr } = await supabase
+          .from("clients")
+          .select("credit")
+          .eq("id", header.client_id)
+          .single();
+
+        if (cErr) throw new Error("Fetch client credit failed: " + cErr.message);
+
+        const currentCredit = Number(cRow?.credit || 0);
+        const newCredit = currentCredit + saleTotalAmount;
+        const { error: updErr } = await supabase
+          .from("clients")
+          .update({ credit: newCredit })
+          .eq("id", header.client_id);
+
+        if (updErr) throw new Error("Update client credit failed: " + updErr.message);
       }
-
-      // 6) Update client's credit (add grand total of this sale)
-      const { data: cRow, error: cErr } = await supabase
-        .from("clients")
-        .select("credit")
-        .eq("id", header.client_id)
-        .single();
-
-      if (cErr) throw new Error("Fetch client credit failed: " + cErr.message);
-
-      const currentCredit = Number(cRow?.credit || 0);
-      const newCredit = currentCredit + saleTotalAmount;
-      const { error: updErr } = await supabase
-        .from("clients")
-        .update({ credit: newCredit })
-        .eq("id", header.client_id);
-
-      if (updErr) throw new Error("Update client credit failed: " + updErr.message);
 
       await refreshInventory();
       await fetchSales();
@@ -761,8 +814,8 @@ export default function Sales() {
       // Clear session storage after successful submission
       clearFormSession();
     } catch (err) {
-      console.error("Error in sale creation:", err);
-      alert("Failed to create sale: " + (err.message || "Unknown error"));
+      console.error("Error in sale " + (isUpdate ? "update" : "creation") + ":", err);
+      alert("Failed to " + (isUpdate ? "update" : "create") + " sale: " + (err.message || "Unknown error"));
     }
   }
 
@@ -917,9 +970,10 @@ export default function Sales() {
    * Create Invoice flow
    * ----------------------------------------------------- */
   function beginCreateInvoice() {
-    const oneMonthLater = new Date();
-    oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
-    setInvoiceDueAt(dateToISTInputValue(oneMonthLater));
+    const invoiceDate = new Date(); // now
+    const dueDate = new Date(invoiceDate);
+    dueDate.setDate(dueDate.getDate() + 30); // Add exactly 30 days
+    setInvoiceDueAt(dateToISTInputValue(dueDate));
     setInvoiceWithGST(true);
     setInvoicePromptOpen(true);
   }
@@ -1738,6 +1792,10 @@ export default function Sales() {
                     {!header.delivered && (
                       <button className="btn" onClick={() => setConfirmDeliverOpen(true)}>Mark as Delivered</button>
                     )}
+                    <button className="btn" onClick={() => {
+                      setIsEditing(true);
+                      // Enable editing by setting the form to current values
+                    }}>Edit Sale</button>
                     {selected.invoice_date ? (
                       <button className="btn primary" onClick={() => openInvoiceTab(selected.id)}>View Invoice</button>
                     ) : (
@@ -1888,6 +1946,30 @@ export default function Sales() {
                           onChange={(e) => setHeader({ ...header, description: e.target.value })}
                         />
                       </label>
+
+                      <label className="lbl">
+                        <span className="lbl-text">Tax Mode</span>
+                        <div className="detail-value" style={{ gap: 12, marginTop: 4 }}>
+                          <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            <input 
+                              type="radio" 
+                              name="tax_mode" 
+                              checked={!!header.with_tax} 
+                              onChange={() => setHeader({ ...header, with_tax: true })} 
+                            />
+                            <span>With Tax</span>
+                          </label>
+                          <label className="check" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            <input 
+                              type="radio" 
+                              name="tax_mode" 
+                              checked={!header.with_tax} 
+                              onChange={() => setHeader({ ...header, with_tax: false })} 
+                            />
+                            <span>Without Tax</span>
+                          </label>
+                        </div>
+                      </label>
                     </div>
                   </div>
 
@@ -1911,7 +1993,10 @@ export default function Sales() {
                                 options={opts}
                                 valueId={currentValueId}
                                 onChange={(opt) => {
-                                  if (!opt) return onProductChange(idx, null);
+                                  if (!opt) {
+                                    onProductChange(idx, null);
+                                    return;
+                                  }
                                   onProductChange(idx, { product_id: opt.product_id, bucket: opt.bucket });
                                 }}
                               />
@@ -1955,7 +2040,7 @@ export default function Sales() {
                               className="input uniform-input"
                               value={ln.tax_rate}
                               onChange={(e) => setLine(idx, { tax_rate: e.target.value })}
-                              disabled={p?.tax_rate === "Tax Exemption" || isTaxExempt}
+                              disabled={p?.tax_rate && p?.tax_rate !== "Tax Exemption"}
                               required
                             >
                               {TAX_OPTIONS.map((t) => (
@@ -1994,7 +2079,7 @@ export default function Sales() {
                       </button>
                     )}
                     <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
-                    <button type="submit" className="btn primary modal-btn">Create</button>
+                    <button type="submit" className="btn primary modal-btn">{selected && isEditing ? "Update" : "Create"}</button>
                   </div>
                 </form>
               )}

@@ -1336,15 +1336,26 @@ export default function Orders() {
                                                             className="input uniform-input"
                                                             value={ln.tax_rate}
                                                             onChange={(e) => setLine(idx, { tax_rate: e.target.value })}
-                                                            disabled={p?.tax_rate === "Tax Exemption"}
+                                                            disabled={p?.tax_rate && p?.tax_rate !== "Tax Exemption"}
                                                             required
                                                         >
                                                             {TAX_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                                                         </select>
+
+                                                        <button type="button" className="btn danger" onClick={() => removeLine(idx)}>
+                                                            Remove
+                                                        </button>
                                                     </div>
                                                 </div>
                                             )
                                         })}
+                                    <button type="button" className="btn" onClick={addLine}>+ Add line</button>
+                                    </div>
+                                    
+                                    
+                                    <div className="modal-actions" style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                        <button type="button" className="btn modal-btn" onClick={closeModal}>Cancel</button>
+                                        <button type="submit" className="btn primary modal-btn">Create</button>
                                     </div>
                                 </form>
                             )}
